@@ -33,6 +33,9 @@ struct Strand {
 	StrandDefer *defer;
 	char *backtrace;
 	StrandState state;
+#ifdef __BLOCKS__
+	bool block;
+#endif
 };
 
 union StrandConfig {
@@ -42,7 +45,7 @@ union StrandConfig {
 
 static union StrandConfig config = {
 	.config = {
-		.stack_size = 16384,
+		.stack_size = 65536,
 		.protect = true,
 		.capture_backtrace = false
 	}
@@ -53,13 +56,13 @@ static union StrandConfig config = {
 #define PROTECT (config.config.protect)
 
 static const StrandConfig config_default = {
-	.stack_size = 16384,
+	.stack_size = 65536,
 	.protect = true,
 	.capture_backtrace = false
 };
 
 static const StrandConfig config_debug = {
-	.stack_size = 16384,
+	.stack_size = 65536,
 	.protect = true,
 	.capture_backtrace = true
 };
@@ -72,6 +75,9 @@ static __thread StrandContext caller, callee;
 static __thread Strand top = { .state = STRAND_CURRENT };
 static __thread Strand *active = NULL;
 static __thread Strand *dead = NULL;
+
+#define STACK_OFFSET \
+	(sizeof (Strand) + (16 - (sizeof (Strand) % 16)))
 
 #ifdef STRAND_STACK_CHECK
 
@@ -122,26 +128,37 @@ strand_configure (const StrandConfig *cfg)
 }
 
 static Strand *
-strand_alloc (void)
+strand_revive (size_t stack_size)
 {
+	Strand *s = dead;
+	if (s != NULL) {
+		dead = s->parent;
+		if (s->stack_size < stack_size) {
+			munmap (s->stack, s->stack_size);
+			s = NULL;
+		}
+	}
+	return s;
+}
+
+static Strand *
+strand_alloc (size_t stack_size, size_t page_size)
+{
+	assert (stack_size % page_size == 0);
+
 	uint8_t *stack;
 	Strand *s;
-	size_t page = getpagesize ();
-	size_t stack_size = sp_next_quantum (STACK_SIZE, page) + page;
-	if (PROTECT) {
-		stack_size += page;
-	}
 
 	stack = mmap (NULL, stack_size, PROT_READ|PROT_WRITE, MAP_ANONYMOUS|MAP_PRIVATE, -1, 0);
 	if (stack == MAP_FAILED) {
 		goto err_stack;
 	}
 
-	if (PROTECT && mprotect (stack, page, PROT_NONE) < 0) {
+	if (PROTECT && mprotect (stack, page_size, PROT_NONE) < 0) {
 		goto err_protect;
 	}
 
-	s = (Strand *)((stack + stack_size) - sizeof *s - (16 - (sizeof *s % 16)));
+	s = (Strand *)((stack + stack_size) - STACK_OFFSET);
 	assert ((uintptr_t)s % 16 == 0);
 
 	s->stack = stack;
@@ -155,32 +172,31 @@ err_stack:
 	return NULL;
 }
 
-Strand *
-strand_new (uintptr_t (*fn) (void *, uintptr_t), void *data)
+static Strand *
+strand_new_empty (void)
 {
-	assert (fn != NULL);
+	size_t page_size = getpagesize ();
+	size_t stack_size = sp_next_quantum (STACK_SIZE, page_size) + page_size;
+	if (PROTECT) {
+		stack_size += page_size;
+	}
 
-	Strand *s = dead;
+	Strand *s = strand_revive (stack_size);
 	if (s == NULL) {
-		s = strand_alloc ();
+		s = strand_alloc (stack_size, page_size);
 		if (s == NULL) {
 			return NULL;
 		}
 	}
-	else {
-		dead = s->parent;
-	}
 
-	s->ctx.rdi = (uintptr_t)s;
-	s->ctx.rsi = (uintptr_t)fn;
-	s->ctx.rip = (uintptr_t)entry;
-	s->ctx.rsp = (uintptr_t)((uint8_t *)s - sizeof (uintptr_t));
 	s->parent = NULL;
-	s->data = data;
+	s->data = NULL;
 	s->value = 0;
 	s->defer = NULL;
-	s->backtrace = NULL;
 	s->state = STRAND_SUSPENDED;
+#ifdef __BLOCKS__
+	s->block = false;
+#endif
 
 	if (CAPTURE_BACKTRACE) {
 		char buf[1024];
@@ -193,17 +209,52 @@ strand_new (uintptr_t (*fn) (void *, uintptr_t), void *data)
 	return s;
 }
 
-void
-strand_free (Strand *s)
+Strand *
+strand_new (uintptr_t (*fn) (void *, uintptr_t), void *data)
 {
-	if (s == NULL) { return; }
+	Strand *s = strand_new_empty ();
+	if (s != NULL) {
+		s->ctx.rdi = (uintptr_t)s;
+		s->ctx.rsi = (uintptr_t)fn;
+		s->ctx.rip = (uintptr_t)entry;
+		s->ctx.rsp = (uintptr_t)((uint8_t *)s - sizeof (uintptr_t));
+		s->data = data;
+	}
+	return s;
+}
 
-	ensure (s->state != STRAND_CURRENT, "attempting to free active strand");
+void
+strand_free (Strand **sp)
+{
+	assert (sp != NULL);
+
+	Strand *s = *sp;
+	if (s == NULL) { return; }
+	*sp = NULL;
+
+	ensure (s->state != STRAND_CURRENT, "attempting to free active coroutine");
 
 	strand_defer_run (&s->defer);
 	free (s->backtrace);
 	s->parent = dead;
 	dead = s;
+}
+
+size_t
+strand_stack_used (void)
+{
+	return strand_stack_used_of (active);
+}
+
+size_t
+strand_stack_used_of (const Strand *s)
+{
+	if (s == NULL) {
+		return 0;
+	}
+	return s->stack_size
+		- ((uint8_t *)s->ctx.rsp - (uint8_t *)s->stack)
+		- STACK_OFFSET;
 }
 
 bool
@@ -212,17 +263,27 @@ strand_alive (const Strand *s)
 	return s && (s->state != STRAND_DEAD);
 }
 
-uintptr_t
-strand_resume (Strand *s, uintptr_t value)
+StrandState
+strand_state_of (const Strand *s)
 {
-	ensure (s->state != STRAND_DEAD, "attempting to resume a dead strand");
+	assert (s != NULL);
+
+	return s->state;
+}
+
+uintptr_t
+strand_resume (Strand *s, uintptr_t val)
+{
+	ensure (s != NULL, "attempting to resume a null coroutine");
+	ensure (s != active, "attempting to resume a active coroutine");
+	ensure (s->state != STRAND_DEAD, "attempting to resume a dead coroutine");
 
 	if (sp_unlikely (active == NULL)) {
 		active = &top;
 	}
 
 	s->parent = active;
-    s->value = value;
+    s->value = val;
 
 	active = s;
 
@@ -241,13 +302,25 @@ strand_resume (Strand *s, uintptr_t value)
 }
 
 uintptr_t
-strand_yield (uintptr_t value)
+strand_yield (uintptr_t val)
 {
 	Strand *s = active;
-	ensure (s->parent != NULL, "yield attempted outside of strand");
+	ensure (s->parent != NULL, "yield attempted outside of coroutine");
 
-	yield (s, value, STRAND_SUSPENDED);
+	yield (s, val, STRAND_SUSPENDED);
 	return s->value;
+}
+
+void *
+strand_data (void)
+{
+	return strand_data_of (active);
+}
+
+void *
+strand_data_of (const Strand *s)
+{
+	return s != NULL ? s->data : NULL;
 }
 
 int
@@ -259,13 +332,22 @@ strand_defer (void (*fn) (void *), void *data)
 int
 strand_defer_to (Strand *s, void (*fn) (void *), void *data)
 {
+	if (s == NULL) {
+		return -EINVAL;
+	}
 	return strand_defer_add (&s->defer, fn, data);
 }
 
 const char *
-strand_backtrace (Strand *s)
+strand_backtrace (void)
 {
-	return s->backtrace;
+	return strand_backtrace_of (active);
+}
+
+const char *
+strand_backtrace_of (const Strand *s)
+{
+	return s != NULL ? s->backtrace : NULL;
 }
 
 #ifdef __BLOCKS__
@@ -296,10 +378,10 @@ strand_new_b (uintptr_t (^block)(uintptr_t val))
 
 	if (strand_defer_to (s, block_shim_defer, copy) < 0) {
 		Block_release (copy);
-		strand_free (s);
-		return NULL;
+		strand_free (&s);
 	}
 
+	s->block = true;
 	return s;
 }
 
@@ -312,6 +394,9 @@ strand_defer_b (void (^block)(void))
 int
 strand_defer_to_b (Strand *s, void (^block)(void))
 {
+	if (s == NULL) {
+		return -EINVAL;
+	}
 	return strand_defer_add_b (&s->defer, block);
 }
 

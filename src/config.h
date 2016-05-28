@@ -1,9 +1,7 @@
 #ifndef STRAND_CONFIG_H
 #define STRAND_CONFIG_H
 
-#include <stddef.h>
-#include <stdint.h>
-#include <stdbool.h>
+#include <siphon/common.h>
 
 #if defined(__unix__)
 # include <sys/param.h>

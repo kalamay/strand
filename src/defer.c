@@ -1,6 +1,7 @@
 #include "defer.h"
 
 #include <stdlib.h>
+#include <errno.h>
 #include <assert.h>
 #ifdef __BLOCKS__
 #include <Block.h>
@@ -26,7 +27,7 @@ strand_defer_add (StrandDefer **defp, void (*fn) (void *), void *data)
 	}
 	else {
 		def = malloc (sizeof (*def));
-		if (def == NULL) return -1;
+		if (def == NULL) return -errno;
 	}
 
 	def->next = *defp;
@@ -39,12 +40,12 @@ strand_defer_add (StrandDefer **defp, void (*fn) (void *), void *data)
 }
 
 void
-strand_defer_run (StrandDefer **defp)
+strand_defer_run (StrandDefer **d)
 {
-	assert (defp != NULL);
+	assert (d != NULL);
 
-	StrandDefer *def = *defp;
-	*defp = NULL;
+	StrandDefer *def = *d;
+	*d = NULL;
 
 	while (def) {
 		StrandDefer *next = def->next;
@@ -53,6 +54,28 @@ strand_defer_run (StrandDefer **defp)
 		pool = def;
 		def = next;
 	}
+}
+
+static void *
+defer_alloc (StrandDefer **d, void *val)
+{
+	if (val != NULL && strand_defer_add (d, free, val) < 0) {
+		free (val);
+		val = NULL;
+	}
+	return val;
+}
+
+void *
+strand_defer_malloc (StrandDefer **d, size_t size)
+{
+	return defer_alloc (d, malloc (size));
+}
+
+void *
+strand_defer_calloc (StrandDefer **d, size_t count, size_t size)
+{
+	return defer_alloc (d, calloc (count, size));
 }
 
 #ifdef __BLOCKS__
