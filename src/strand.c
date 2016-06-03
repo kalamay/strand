@@ -429,22 +429,6 @@ strand_print (const Strand *s, FILE *out)
 		return;
 	}
 
-	const char *state = "INVALID";
-	switch (s->state) {
-	case SUSPENDED:
-		state = "SUSPENDED";
-		break;
-	case CURRENT:
-		state = "CURRENT";
-		break;
-	case ACTIVE:
-		state = "ACTIVE";
-		break;
-	case DEAD:
-		state = "DEAD";
-		break;
-	}
-
 	fprintf (out, PRI " {>\n", PRIARGS (s));
 	strand_ctx_print (s->ctx, out);
 	fprintf (out, "}\n");
