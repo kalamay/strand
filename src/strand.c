@@ -1,226 +1,323 @@
 #include "strand.h"
-#include "context.h"
+#include "ctx.h"
 #include "defer.h"
 
 #include <stdlib.h>
-#include <unistd.h>
 #include <string.h>
-#include <inttypes.h>
-#include <stdio.h>
-#include <assert.h>
+#include <unistd.h>
 #include <sys/mman.h>
-#include <signal.h>
-#ifdef __BLOCKS__
-#include <Block.h>
+#include <assert.h>
+
+#if STRAND_BLOCKS
+# define STRAND_FBLOCK ((uint32_t)1 << 31)
 #endif
 
-#include <siphon/common.h>
-#include <siphon/error.h>
+/** Bytes required for the corotoutine rounded up to nearest 16 bytes */
+#define STRAND_SIZE \
+	(sizeof (Strand) + (16 - (sizeof (Strand) % 16)))
 
-#define ensure(exp, ...) do {    \
-	if (sp_unlikely (!(exp))) {  \
-		sp_fabort (__VA_ARGS__); \
-	}                            \
+/**
+ * The stack size in bytes including the extra space below the corotoutine
+ *
+ * @param  s  coroutine pointer
+ * @return  total size of the stack
+ */
+#define STACK_SIZE(s) \
+	((s)->map_size - STRAND_SIZE)
+
+/**
+ * Get the mapped address from a coroutine
+ *
+ * @param  s  coroutine pointer
+ * @return  mapped address
+ */
+#define MAP_BEGIN(s) \
+	((uint8_t *)(s) + STRAND_SIZE - (s)->map_size)
+
+#define SUSPENDED 0  /** new created or yielded */
+#define CURRENT   1  /** currently has context */
+#define ACTIVE    2  /** is in the parent list of the current */
+#define DEAD      3  /** function has returned */
+
+/** Maps state integers to name strings */
+static const char *state_names[] = {
+	[SUSPENDED] = "SUSPENDED",
+	[CURRENT]   = "CURRENT",
+	[ACTIVE]    = "ACTIVE",
+	[DEAD]      = "DEAD",
+};
+
+/** Print format string for a Strand pointer */
+#define PRI "#<Strand:%012" PRIxPTR " state=%s, stack=%zd>"
+
+/**
+ * Expands into the arguments to fill in the `PRI` format specifiers
+ *
+ * @param  s  coroutine pointer
+ * @return  list of arguments
+ */
+#define PRIARGS(s) \
+	(uintptr_t)s, state_names[s->state], strand_stack_used (s)
+
+/**
+ * Runtime assert that prints stack and error information before aborting
+ *
+ * @param  s    coroutine pointer
+ * @param  exp  expression to ensure is `true`
+ * @param  ...  printf-style expression to print before aborting
+ */
+#define ensure(s, exp, ...) do {                                  \
+	if (sp_unlikely (!(exp))) {                                   \
+		Strand *s_tmp = (s);                                      \
+		if (s_tmp != NULL && s_tmp->backtrace != NULL) {          \
+			fprintf (stderr, "error with coroutine " PRI ":\n%s", \
+					PRIARGS(s_tmp), s_tmp->backtrace);            \
+		}                                                         \
+		sp_fabort (__VA_ARGS__);                                  \
+	}                                                             \
 } while (0)
 
+/**
+ * Test if the coroutine has debugging enabled
+ *
+ * @param  s  coroutine pointer
+ * @return  if the coroutine is in debug mode
+ */
+#define debug(s) \
+	sp_unlikely ((s)->flags & STRAND_FDEBUG)
+
 struct Strand {
-	StrandContext ctx;
+	uintptr_t ctx[STRAND_CTX_REG_COUNT];
 	Strand *parent;
-	void *stack;
-	size_t stack_size;
 	void *data;
 	uintptr_t value;
 	StrandDefer *defer;
 	char *backtrace;
-	StrandState state;
-#ifdef __BLOCKS__
-	bool block;
+	uint32_t map_size;
+	int state, flags;
+#if STRAND_VALGRIND
+	unsigned int stack_id;
 #endif
 };
 
-union StrandConfig {
-	StrandConfig config;
-	uint64_t value;
-};
+typedef union {
+	int64_t value;
+	struct {
+		uint32_t stack_size;
+		uint32_t flags;
+	} cfg;
+} StrandConfig;
 
-static union StrandConfig config = {
-	.config = {
-		.stack_size = 65536,
-		.protect = true,
-		.capture_backtrace = false
+static __thread Strand top = { .state = CURRENT };
+static __thread Strand *current = NULL;
+static __thread Strand *dead = NULL;
+
+static StrandConfig config = {
+	.cfg = {
+		.stack_size = STRAND_STACK_DEFAULT,
+		.flags = STRAND_FLAGS_DEFAULT
 	}
 };
 
-#define STACK_SIZE (config.config.stack_size)
-#define CAPTURE_BACKTRACE (config.config.capture_backtrace)
-#define PROTECT (config.config.protect)
+/**
+ * Populates a config option with valid values
+ *
+ * @param  stack_size  desired stack size
+ * @param  flags       flags for the coroutine
+ * @return  valid configuration value
+ */
+static StrandConfig
+config_make (uint32_t stack_size, uint32_t flags)
+{
+	if (stack_size > STRAND_STACK_MAX) {
+		stack_size = STRAND_STACK_MAX;
+	}
+	else if (stack_size < STRAND_STACK_MIN) {
+		stack_size = STRAND_STACK_MIN;
+	}
 
-static const StrandConfig config_default = {
-	.stack_size = 65536,
-	.protect = true,
-	.capture_backtrace = false
-};
+	return (StrandConfig) {
+		.cfg = {
+			.stack_size = stack_size,
+			.flags = flags & 0x7fffffff
+		}
+	};
+}
 
-static const StrandConfig config_debug = {
-	.stack_size = 65536,
-	.protect = true,
-	.capture_backtrace = true
-};
+/**
+ * Reclaims a "freed" mapping
+ *
+ * If the map size doesn't meet needs it is unmapped and `NULL` is
+ * returned. This will not iterate through the dead list as that could be
+ * too costly. Perhaps trying a few at a time would be preferrable though?
+ *
+ * @param  map_size  minimum size requirement for the entire mapping
+ * @return  pointer to mapped region or `NULL` if nothing to revive
+ */
+static uint8_t *
+map_revive (uint32_t map_size)
+{
+	Strand *s = dead;
+	if (s == NULL) {
+		return NULL;
+	}
 
-const StrandConfig *const STRAND_CONFIG = &config.config;
-const StrandConfig *const STRAND_DEFAULT = &config_default;
-const StrandConfig *const STRAND_DEBUG = &config_debug;
+	uint8_t *map = MAP_BEGIN (s);
 
-static __thread StrandContext caller, callee;
-static __thread Strand top = { .state = STRAND_CURRENT };
-static __thread Strand *active = NULL;
-static __thread Strand *dead = NULL;
+	dead = s->parent;
+	if (s->map_size < map_size) {
+		munmap (map, s->map_size);
+		map = NULL;
+	}
 
-#define STACK_OFFSET \
-	(sizeof (Strand) + (16 - (sizeof (Strand) % 16)))
+	return map;
+}
 
-#ifdef STRAND_STACK_CHECK
+/**
+ * Reclaims or creates a new mapping
+ *
+ * @param  map_size  minimum size requirement for the entire mapping
+ * @return  pointer to mapped region or `NULL` on error
+ */
+static uint8_t *
+map_alloc (uint32_t map_size)
+{
+	uint8_t *map = map_revive (map_size);
+	if (map == NULL) {
+		map = mmap (NULL, map_size, PROT_READ|PROT_WRITE, MAP_ANONYMOUS|MAP_PRIVATE, -1, 0);
+		if (map == MAP_FAILED) {
+			map = NULL;
+		}
+	}
+	return map;
+}
 
-static int stack_order = -1;
-
+/**
+ * Entry point for a new coroutine
+ *
+ * This runs the user function, kills the coroutine, and restores the
+ * parent context.
+ *
+ * @param  s   coroutine pointer
+ * @param  fn  function for the body of the coroutine
+ */
 static void
-stack_check_from (int *first)
+entry (Strand *s, uintptr_t (*fn)(void *, uintptr_t))
 {
-	int second;
-	stack_order = first < &second ? 1 : -1;
+	Strand *parent = s->parent;
+	uintptr_t val = fn (s->data, s->value);
+
+	current = parent;
+
+	s->parent = NULL;
+	s->value = val;
+	s->state = DEAD;
+	parent->state = CURRENT;
+	strand_defer_run (&s->defer);
+	strand_ctx_swap (s->ctx, parent->ctx);
 }
 
-static void __attribute__((constructor))
-stack_check (void)
+/**
+ * Maps a new stack and coroutine region
+ *
+ * The mapping is a single contiguous region with the coroutine state struct
+ * stored at the end and the stack is position just below. If the stack is
+ * protected, the last page will be locked. Currently, only stacks that grow
+ * down are supported, but this is pretty trivial to accomodate.
+ *
+ * For downward growing stacks, the mapping layout looks like:
+ *
+ *     +------+--------------------+--------+
+ *     | lock | stack              | strand |
+ *     +------+--------------------+--------+
+ *
+ * For upward growing stack, the mapping would probably look like:
+ *
+ *     +--------+--------------------+------+
+ *     | strand | stack              | lock |
+ *     +--------+--------------------+------+
+ *
+ * @param  cfg   configuration struct value
+ * @param  fn    function for the body of the coroutine
+ * @param  data  user data pointer
+ * @return  initialized coroutine pointer
+ */
+static Strand *
+new (StrandConfig cfg, uintptr_t (*fn)(void *, uintptr_t), void *data)
 {
-	int first;
-	stack_check_from (&first);
-}
+	int page_size = getpagesize ();
+	if (page_size < 0) {
+		return NULL;
+	}
 
+	Strand *s = NULL;
+	uint8_t *map = NULL;
+	uint32_t map_size = sp_next_quantum (cfg.cfg.stack_size, page_size) + page_size;
+
+	if (cfg.cfg.flags & STRAND_FPROTECT) {
+		map_size += page_size;
+	}
+	
+	map = map_alloc (map_size);
+	if (map == NULL) {
+		return NULL;
+	}
+
+	s = (Strand *)(map + map_size - STRAND_SIZE);
+	assert ((uintptr_t)s % 16 == 0);
+
+	if ((cfg.cfg.flags & STRAND_FPROTECT)
+			&& !(s->flags & STRAND_FPROTECT)
+			&& mprotect (map, page_size, PROT_NONE) < 0) {
+		int err = errno;
+		munmap (map, map_size);
+		errno = err;
+		return NULL;
+	}
+
+	strand_ctx_init (s->ctx, map, STACK_SIZE (s),
+			(void *)entry, s, (void *)fn);
+
+	s->parent = NULL;
+	s->data = data;
+	s->value = 0;
+	s->defer = NULL;
+	s->backtrace = NULL;
+	s->map_size = map_size;
+	s->state = SUSPENDED;
+	s->flags = cfg.cfg.flags;
+
+#if STRAND_VALGRIND
+	s->stack_id = VALGRIND_STACK_REGISTER (map, STACK_SIZE (s));
 #endif
 
-static inline void __attribute__((always_inline))
-yield (Strand *s, uintptr_t val, StrandState state)
-{
-    s->value = val;
-	s->state = state;
-	s->parent->state = STRAND_CURRENT;
-	active = s->parent;
-	s->parent = NULL;
-
-    strand_swap (&callee, &caller);
+	return s;
 }
 
-static void
-entry (Strand *s, uintptr_t (*fn) (void *, uintptr_t))
-{
-	uintptr_t rv = fn (s->data, s->value);
-	yield (s, rv, STRAND_DEAD);
-}
+
 
 void
-strand_configure (const StrandConfig *cfg)
+strand_configure (uint32_t stack_size, uint32_t flags)
 {
-	union StrandConfig c;
-	c.config = *cfg;
-
+	StrandConfig c = config_make (stack_size, flags);
 	while (!__sync_bool_compare_and_swap (&config.value, config.value, c.value));
 }
 
-static Strand *
-strand_revive (size_t stack_size)
+Strand *
+strand_new (uintptr_t (*fn)(void *, uintptr_t), void *data)
 {
-	Strand *s = dead;
-	if (s != NULL) {
-		dead = s->parent;
-		if (s->stack_size < stack_size) {
-			munmap (s->stack, s->stack_size);
-			s = NULL;
-		}
-	}
-	return s;
-}
+	assert (fn != NULL);
 
-static Strand *
-strand_alloc (size_t stack_size, size_t page_size)
-{
-	assert (stack_size % page_size == 0);
-
-	uint8_t *stack;
-	Strand *s;
-
-	stack = mmap (NULL, stack_size, PROT_READ|PROT_WRITE, MAP_ANONYMOUS|MAP_PRIVATE, -1, 0);
-	if (stack == MAP_FAILED) {
-		goto err_stack;
-	}
-
-	if (PROTECT && mprotect (stack, page_size, PROT_NONE) < 0) {
-		goto err_protect;
-	}
-
-	s = (Strand *)((stack + stack_size) - STACK_OFFSET);
-	assert ((uintptr_t)s % 16 == 0);
-
-	s->stack = stack;
-	s->stack_size = stack_size;
-
-	return s;
-
-err_protect:
-	munmap (stack, stack_size);
-err_stack:
-	return NULL;
-}
-
-static Strand *
-strand_new_empty (void)
-{
-	size_t page_size = getpagesize ();
-	size_t stack_size = sp_next_quantum (STACK_SIZE, page_size) + page_size;
-	if (PROTECT) {
-		stack_size += page_size;
-	}
-
-	Strand *s = strand_revive (stack_size);
-	if (s == NULL) {
-		s = strand_alloc (stack_size, page_size);
-		if (s == NULL) {
-			return NULL;
-		}
-	}
-
-	s->parent = NULL;
-	s->data = NULL;
-	s->value = 0;
-	s->defer = NULL;
-	s->state = STRAND_SUSPENDED;
-#ifdef __BLOCKS__
-	s->block = false;
-#endif
-
-	if (CAPTURE_BACKTRACE) {
-		char buf[1024];
-		ssize_t len = sp_stack (buf, sizeof buf);
-		if (len > 0) {
-			s->backtrace = strndup (buf, (size_t)len);
-		}
-	}
-
-	return s;
+	return new (config, fn, data);
 }
 
 Strand *
-strand_new (uintptr_t (*fn) (void *, uintptr_t), void *data)
+strand_new_config (uint32_t stack_size, uint32_t flags,
+		uintptr_t (*fn)(void *, uintptr_t), void *data)
 {
-	Strand *s = strand_new_empty ();
-	if (s != NULL) {
-		s->ctx.rdi = (uintptr_t)s;
-		s->ctx.rsi = (uintptr_t)fn;
-		s->ctx.rip = (uintptr_t)entry;
-		s->ctx.rsp = (uintptr_t)((uint8_t *)s - sizeof (uintptr_t));
-		s->data = data;
-	}
-	return s;
+	assert (fn != NULL);
+
+	return new (config_make (stack_size, flags), fn, data);
 }
 
 void
@@ -230,139 +327,148 @@ strand_free (Strand **sp)
 
 	Strand *s = *sp;
 	if (s == NULL) { return; }
-	*sp = NULL;
 
-	ensure (s->state != STRAND_CURRENT, "attempting to free active coroutine");
+	ensure (s, s->state != CURRENT, "attempting to free current coroutine");
+	ensure (s, s->state != ACTIVE, "attempting to free an active coroutine");
+
+	*sp = NULL;
 
 	strand_defer_run (&s->defer);
 	free (s->backtrace);
+
+#if STRAND_VALGRIND
+	VALGRIND_STACK_DEREGISTER (s->stack_id);
+#endif
+
 	s->parent = dead;
 	dead = s;
-}
-
-size_t
-strand_stack_used (void)
-{
-	return strand_stack_used_of (active);
-}
-
-size_t
-strand_stack_used_of (const Strand *s)
-{
-	if (s == NULL) {
-		return 0;
-	}
-	return s->stack_size
-		- ((uint8_t *)s->ctx.rsp - (uint8_t *)s->stack)
-		- STACK_OFFSET;
-}
-
-bool
-strand_alive (const Strand *s)
-{
-	return s && (s->state != STRAND_DEAD);
-}
-
-StrandState
-strand_state_of (const Strand *s)
-{
-	assert (s != NULL);
-
-	return s->state;
-}
-
-uintptr_t
-strand_resume (Strand *s, uintptr_t val)
-{
-	ensure (s != NULL, "attempting to resume a null coroutine");
-	ensure (s != active, "attempting to resume a active coroutine");
-	ensure (s->state != STRAND_DEAD, "attempting to resume a dead coroutine");
-
-	if (sp_unlikely (active == NULL)) {
-		active = &top;
-	}
-
-	s->parent = active;
-    s->value = val;
-
-	active = s;
-
-	s->parent->state = STRAND_ACTIVE;
-	s->state = STRAND_CURRENT;
-
-	strand_swap (&caller, &s->ctx);
-
-	if (s->state != STRAND_DEAD) {
-		memcpy (&s->ctx, &callee, sizeof callee);
-	}
-	else {
-		strand_defer_run (&s->defer);
-	}
-	return s->value;
 }
 
 uintptr_t
 strand_yield (uintptr_t val)
 {
-	Strand *s = active;
-	ensure (s->parent != NULL, "yield attempted outside of coroutine");
+	Strand *s = current, *p = s->parent;
 
-	yield (s, val, STRAND_SUSPENDED);
+	ensure (s, p != NULL, "yield attempted outside of coroutine");
+
+	current = p;
+
+	s->parent = NULL;
+	s->value = val;
+	s->state = SUSPENDED;
+	p->state = CURRENT;
+	strand_ctx_swap (s->ctx, p->ctx);
 	return s->value;
 }
 
-void *
-strand_data (void)
+uintptr_t
+strand_resume (Strand *s, uintptr_t val)
 {
-	return strand_data_of (active);
+	ensure (s, s != NULL, "attempting to resume a null coroutine");
+	ensure (s, s->state != CURRENT, "attempting to resume the current coroutine");
+	ensure (s, s->state != ACTIVE, "attempting to resume an active coroutine");
+	ensure (s, s->state != DEAD, "attempting to resume a dead coroutine");
+
+	Strand *p = current;
+	if (p == NULL) {
+		p = &top;
+	}
+
+	current = s;
+
+	s->parent = p;
+	s->value = val;
+	s->state = CURRENT;
+	p->state = ACTIVE;
+	strand_ctx_swap (p->ctx, s->ctx);
+
+	return s->value;
 }
 
-void *
-strand_data_of (const Strand *s)
+bool
+strand_alive (const Strand *s)
 {
-	return s != NULL ? s->data : NULL;
+	assert (s != NULL);
+
+	return s->state != DEAD;
+}
+
+size_t
+strand_stack_used (const Strand *s)
+{
+	return strand_ctx_stack_size (s->ctx, MAP_BEGIN (s), STACK_SIZE (s));
 }
 
 int
 strand_defer (void (*fn) (void *), void *data)
 {
-	return strand_defer_to (active, fn, data);
+	return strand_defer_add (&current->defer, fn, data);
 }
 
-int
-strand_defer_to (Strand *s, void (*fn) (void *), void *data)
+void *
+strand_malloc (size_t size)
 {
-	if (s == NULL) {
-		return -EINVAL;
+	return strand_defer_malloc (&current->defer, size);
+}
+
+void *
+strand_calloc (size_t count, size_t size)
+{
+	return strand_defer_calloc (&current->defer, count, size);
+}
+
+void
+strand_print (const Strand *s, FILE *out)
+{
+	if (out == NULL) {
+		out = stdout;
 	}
-	return strand_defer_add (&s->defer, fn, data);
+
+	if (s == NULL) {
+		fprintf (out, "#<Strand:(null)>\n");
+		return;
+	}
+
+	const char *state = "INVALID";
+	switch (s->state) {
+	case SUSPENDED:
+		state = "SUSPENDED";
+		break;
+	case CURRENT:
+		state = "CURRENT";
+		break;
+	case ACTIVE:
+		state = "ACTIVE";
+		break;
+	case DEAD:
+		state = "DEAD";
+		break;
+	}
+
+	fprintf (out, PRI " {>\n", PRIARGS (s));
+	strand_ctx_print (s->ctx, out);
+	fprintf (out, "}\n");
 }
 
-const char *
-strand_backtrace (void)
-{
-	return strand_backtrace_of (active);
-}
+#if STRAND_BLOCKS
 
-const char *
-strand_backtrace_of (const Strand *s)
-{
-	return s != NULL ? s->backtrace : NULL;
-}
-
-#ifdef __BLOCKS__
-
+/**
+ * The function used for block-based coroutines
+ *
+ * This assumes that `data` is the user-supplied block, invokes it, and
+ * then releases is.
+ *
+ * @param  data  copied block
+ * @param  val   initial coroutine value
+ * @return  result of block
+ */
 static uintptr_t
 block_shim (void *data, uintptr_t val)
 {
 	uintptr_t (^block)(uintptr_t) = data;
-	return block (val);
-}
-
-static void
-block_shim_defer (void *data)
-{
-	Block_release (data);
+	uintptr_t out = block (val);
+	Block_release (block);
+	return out;
 }
 
 Strand *
@@ -376,28 +482,15 @@ strand_new_b (uintptr_t (^block)(uintptr_t val))
 		return NULL;
 	}
 
-	if (strand_defer_to (s, block_shim_defer, copy) < 0) {
-		Block_release (copy);
-		strand_free (&s);
-	}
+	s->flags |= STRAND_FBLOCK;
 
-	s->block = true;
 	return s;
 }
 
 int
 strand_defer_b (void (^block)(void))
 {
-	return strand_defer_to_b (active, block);
-}
-
-int
-strand_defer_to_b (Strand *s, void (^block)(void))
-{
-	if (s == NULL) {
-		return -EINVAL;
-	}
-	return strand_defer_add_b (&s->defer, block);
+	return strand_defer_add_b (&current->defer, block);
 }
 
 #endif

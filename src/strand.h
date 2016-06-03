@@ -1,39 +1,64 @@
-#ifndef STRAND_TASK_H
-#define STRAND_TASK_H
+#ifndef STRAND_H
+#define STRAND_H
+
+#include "config.h"
+
+#include <stdio.h>
+#include <stdint.h>
+#include <stdbool.h>
+#include <limits.h>
 
 #include <siphon/common.h>
 
-typedef struct Strand Strand;
-
-typedef enum {
-	STRAND_SUSPENDED,
-	STRAND_CURRENT,
-	STRAND_ACTIVE,
-	STRAND_DEAD
-} StrandState;
-
-typedef struct {
-	uint32_t stack_size;
-	bool protect;
-	bool capture_backtrace;
-} StrandConfig;
-
-SP_EXPORT const StrandConfig *const STRAND_CONFIG;
-SP_EXPORT const StrandConfig *const STRAND_DEFAULT;
-SP_EXPORT const StrandConfig *const STRAND_DEBUG;
+#define STRAND_FDEBUG   (1U << 0) /** enable debug statements */
+#define STRAND_FPROTECT (1U << 1) /** protect the end of the stack */
+#define STRAND_FCAPTURE (1U << 2) /** capture stack for new coroutines */
 
 /**
- * Updates the configuration for subsequent coroutines
+ * Minimum allowed stack size
+ */
+#define STRAND_STACK_MIN 16384
+
+/**
+ * Maximum allowed stack size
+ */
+#define STRAND_STACK_MAX (1024 * STRAND_STACK_MIN)
+
+/**
+ * Stack size just large enough to call all of glibc functions
+ */
+#define STRAND_STACK_DEFAULT (8 * STRAND_STACK_MIN)
+
+/**
+ * Flag combination ideal for general use
+ */
+#define STRAND_FLAGS_DEFAULT (STRAND_FPROTECT)
+
+/**
+ * Flag combination ideal for debugging purposed
+ */
+#define STRAND_FLAGS_DEBUG (STRAND_FPROTECT | STRAND_FDEBUG | STRAND_FCAPTURE)
+
+/**
+ * Opaque type for coroutine instances
+ */
+typedef struct Strand Strand;
+
+/**
+ * Updates the configuration for subsequent coroutines.
  *
- * Initially, coroutines are created using the `STRAND_DEFAULT` configuration.
- * This only needs to be called if the configuration needs to be changed.
- * All threads use the same configuration, and configuration is lock-free and thread-safe.
+ * Initially, coroutines are created using the `STRAND_STACK_DEFAULT` stack
+ * size and the in `STRAND_FLAGS_DEFAULT` mode. This only needs to be called
+ * if the configuration needs to be changed. All threads use the same
+ * configuration, and configuration is lock-free and thread-safe.
+ *
  * Currently active coroutines will not be changed.
  *
- * @param  cfg  configuration pointer
+ * @param  stack_size  minimun stack size allocated
+ * @param  flags       configuration flags
  */
 SP_EXPORT void
-strand_configure (const StrandConfig *cfg);
+strand_configure (uint32_t stack_size, uint32_t flags);
 
 /**
  * Creates a new coroutine with a function for execution context
@@ -44,10 +69,26 @@ strand_configure (const StrandConfig *cfg);
  *
  * @param  fn    the function to execute in the new context
  * @param  data  user pointer to associate with the coroutine
- * @returns  new coroutine or `NULL` on error
+ * @return  new coroutine or `NULL` on error
  */
 SP_EXPORT Strand *
-strand_new (uintptr_t (*fn) (void *data, uintptr_t val), void *data);
+strand_new (uintptr_t (*fn)(void *, uintptr_t), void *data);
+
+/**
+ * Creates a new coroutine with a function for execution context using
+ * non-global configuration options.
+ *
+ * The newly created coroutine will be in a suspended state. Calling
+ * `strand_resume` on the returned value will transfer execution context
+ * to the function `fn`.
+ *
+ * @param  fn    the function to execute in the new context
+ * @param  data  user pointer to associate with the coroutine
+ * @return  new coroutine or `NULL` on error
+ */
+SP_EXPORT Strand *
+strand_new_config (uint32_t stack_size, uint32_t flags,
+		uintptr_t (*fn)(void *, uintptr_t), void *data);
 
 /**
  * Frees an inactive coroutine
@@ -62,37 +103,20 @@ strand_new (uintptr_t (*fn) (void *data, uintptr_t val), void *data);
 SP_EXPORT void
 strand_free (Strand **sp);
 
-SP_EXPORT size_t
-strand_stack_used (void);
-
-SP_EXPORT size_t
-strand_stack_used_of (const Strand *s);
-
 /**
- * Checks if a coroutine is not dead
+ * Gives up context from the current coroutine
  *
- * This returns `true` if the state is suspended, current, or active. In
- * other words, this is similar to:
+ * This will return context to the parent coroutine that called `strand_resume`.
+ * `val` will become the return value to `strand_resume`, allowing a value to be
+ * communicated back to the calling context.
  *
- *     strand_state_of (s) != STRAND_DEAD
+ * The returned value is the value passed into the context to `strand_resume`.
  *
- * The one difference is that a `NULL` coroutine is not considered alive,
- * whereas `strand_state_of` expects a non-NULL coroutine.
- *
- * @param  s  the coroutine to test or `NULL`
- * @returns  `true` if alive, `false` if dead
+ * @param  val  value to send to the context
+ * @return  value passed into `strand_resume`
  */
-SP_EXPORT bool
-strand_alive (const Strand *s);
-
-/**
- * Gets the state of a coroutine
- *
- * @param  s  the coroutine to test or `NULL` for current
- * @returns  state value
- */
-SP_EXPORT StrandState
-strand_state_of (const Strand *s);
+SP_EXPORT uintptr_t
+strand_yield (uintptr_t val);
 
 /**
  * Gives context to en explicit coroutine
@@ -112,36 +136,30 @@ SP_EXPORT uintptr_t
 strand_resume (Strand *s, uintptr_t val);
 
 /**
- * Gives up context from the current coroutine
+ * Checks if a coroutine is not dead
  *
- * This will return context to the parent coroutine that called `strand_resume`.
- * `val` will become the return value to `strand_resume`, allowing a value to be
- * communicated back to the calling context.
+ * This returns `true` if the state is suspended, current, or active. In
+ * other words, this is similar to:
  *
- * The returned value is the value passed into the context to `strand_resume`.
+ *     strand_state (s) != STRAND_DEAD
  *
- * @param  val  value to send to the context
- * @returns  value passed into `strand_resume`
+ * The one difference is that a `NULL` coroutine is not considered alive,
+ * whereas `strand_state` expects a non-NULL coroutine.
+ *
+ * @param  s  the coroutine to test or `NULL`
+ * @return  `true` if alive, `false` if dead
  */
-SP_EXPORT uintptr_t
-strand_yield (uintptr_t val);
+SP_EXPORT bool
+strand_alive (const Strand *s);
 
 /**
- * Gets the user pointer associated with the active coroutine
+ * Gets the current stack space used
  *
- * @returns  user pointer
+ * @param  s  the coroutine to access
+ * @return  number of bytes used
  */
-SP_EXPORT void *
-strand_data (void);
-
-/**
- * Gets the user pointer associated with an explicit coroutine
- *
- * @param  s  coroutine to access
- * @returns  user pointer
- */
-SP_EXPORT void *
-strand_data_of (const Strand *s);
+SP_EXPORT size_t
+strand_stack_used (const Strand *s);
 
 /**
  * Schedules a function to be invoked upon finalization of the active coroutine
@@ -156,52 +174,40 @@ SP_EXPORT int
 strand_defer (void (*fn) (void *), void *data);
 
 /**
- * Schedules a function to be invoked upon finalization of an explicit coroutine
+ * Creates an allocation that is free at termination of the coroutine
  *
- * This will be called after the return of the coroutine function but before
- * yielding back to the parent context. Deferred calls occur in LIFO order.
- *
- * @param  s     coroutine to schedule
- * @oaram  fn    function to call
- * @param  data  data to pass to `fn`
+ * @param  size  number of bytes to allocate
+ * @return  point or `NULL` on error
  */
-SP_EXPORT int
-strand_defer_to (Strand *s, void (*fn) (void *), void *data);
+SP_EXPORT void *
+strand_malloc (size_t size);
 
 /**
- * Gets the allocation-time backtrace for the current coroutine
+ * Creates a zeroed allocation that is free at termination of the coroutine
  *
- * This will return `NULL` if the `capture_backtrace` option was `false`
- * during allocation of the coroutine.
- *
- * @param  s  coroutine to access or `NULL` for current
- * @returns  backtrace string or `NULL`
+ * @param  count  number of contiguous objects
+ * @param  size   number of bytes for each object
+ * @return  point or `NULL` on error
  */
-SP_EXPORT const char *
-strand_backtrace (void);
+SP_EXPORT void *
+strand_calloc (size_t count, size_t size);
 
 /**
- * Gets the allocation-time backtrace for an explicit coroutine
+ * Prints a representation of the coroutine
  *
- * This will return `NULL` if the `capture_backtrace` option was `false`
- * during allocation of the coroutine.
- *
- * @param  s  coroutine to access
- * @returns  backtrace string or `NULL`
+ * @param  s    the coroutine to print or `NULL`
+ * @param  out  `FILE *` handle to write to or `NULL`
  */
-SP_EXPORT const char *
-strand_backtrace_of (const Strand *s);
+SP_EXPORT void
+strand_print (const Strand *s, FILE *out);
 
-#ifdef __BLOCKS__
+#if STRAND_BLOCKS
 
 SP_EXPORT Strand *
 strand_new_b (uintptr_t (^block)(uintptr_t val));
 
 SP_EXPORT int
 strand_defer_b (void (^block)(void));
-
-SP_EXPORT int
-strand_defer_to_b (Strand *s, void (^block)(void));
 
 #endif
 

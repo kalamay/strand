@@ -14,7 +14,7 @@ typedef struct StrandDefer StrandDefer;
  * @param  d     reference to head of deferred list
  * @param  fn    function for later execution
  * @param  data  data to pass to `fn`
- * @returns  `0` on success `-errno` on failure
+ * @return  `0` on success `-errno` on failure
  */
 SP_EXPORT int
 strand_defer_add (StrandDefer **d, void (*fn) (void *), void *data);
@@ -34,7 +34,7 @@ strand_defer_run (StrandDefer **d);
  *
  * @param  d     reference to head of deferred list
  * @param  size  number of bytes to allocate
- * @returns  pointer to allocation or `NULL`
+ * @return  pointer to allocation or `NULL`
  */
 SP_EXPORT void *
 strand_defer_malloc (StrandDefer **d, size_t size);
@@ -45,7 +45,7 @@ strand_defer_malloc (StrandDefer **d, size_t size);
  * @param  d      reference to head of deferred list
  * @param  count  number of contiguous objects
  * @param  size   number of bytes for each object
- * @returns  pointer to allocation or `NULL`
+ * @return  pointer to allocation or `NULL`
  */
 SP_EXPORT void *
 strand_defer_calloc (StrandDefer **d, size_t count, size_t size);
@@ -60,7 +60,7 @@ strand_defer_calloc (StrandDefer **d, size_t count, size_t size);
  *
  * @param  d      reference to head of deferred list
  * @param  block  blok for later execution
- * @returns  `0` on success `-errno` on failure
+ * @return  `0` on success `-errno` on failure
  */
 SP_EXPORT int
 strand_defer_add_b (StrandDefer **d, void (^block)(void));

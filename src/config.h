@@ -2,9 +2,15 @@
 #define STRAND_CONFIG_H
 
 #include <siphon/common.h>
+#include <siphon/error.h>
 
 #if defined(__unix__)
 # include <sys/param.h>
+#endif
+
+#if defined(__BLOCKS__) && defined(STRAND_USE_BLOCKS)
+# define STRAND_BLOCKS 1
+# include <Block.h>
 #endif
 
 #if !defined(NDEBUG) && defined(STRAND_USE_VALGRIND)
