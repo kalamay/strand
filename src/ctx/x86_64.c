@@ -18,13 +18,14 @@ stack_pointer (void *stack, size_t len)
 }
 
 void
-strand_ctx_init (uintptr_t *ctx, void *stack, size_t len, void *func, void *a1, void *a2)
+strand_ctx_init (uintptr_t *ctx, void *stack, size_t len,
+		uintptr_t ip, uintptr_t a1, uintptr_t a2)
 {
     uintptr_t *sp = stack_pointer (stack, len);
 	*sp = 0;
-	ctx[RDI] = (uintptr_t)a1;
-	ctx[RSI] = (uintptr_t)a2;
-	ctx[RIP] = (uintptr_t)func;
+	ctx[RDI] = a1;
+	ctx[RSI] = a2;
+	ctx[RIP] = ip;
 	ctx[RSP] = (uintptr_t)sp;
 }
 

@@ -25,12 +25,13 @@
  * @param  ctx    context pointer
  * @param  stack  lowest address of the stack
  * @param  len    byte length of the stack
- * @param  func   function to execute
- * @param  a1     first argument to `func`
- * @param  a2     second argument to `func`
+ * @param  ip     function to execute
+ * @param  a1     first argument to `ip`
+ * @param  a2     second argument to `ip`
  */
 SP_EXPORT void
-strand_ctx_init (uintptr_t *ctx, void *stack, size_t len, void *func, void *a1, void *a2);
+strand_ctx_init (uintptr_t *ctx, void *stack, size_t len,
+		uintptr_t ip, uintptr_t a1, uintptr_t a2);
 
 /**
  * Gets the current stack space usage in bytes

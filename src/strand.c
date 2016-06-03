@@ -276,7 +276,7 @@ new (StrandConfig cfg, uintptr_t (*fn)(void *, uintptr_t), void *data)
 	}
 
 	strand_ctx_init (s->ctx, map, STACK_SIZE (s),
-			(void *)entry, s, (void *)fn);
+			(uintptr_t)entry, (uintptr_t)s, (uintptr_t)fn);
 
 	s->parent = NULL;
 	s->data = data;
