@@ -206,6 +206,10 @@ strand_print (const Strand *s, FILE *out);
 SP_EXPORT Strand *
 strand_new_b (uintptr_t (^block)(uintptr_t val));
 
+SP_EXPORT Strand *
+strand_new_config_b (uint32_t stack_size, uint32_t flags,
+		uintptr_t (^block)(uintptr_t val));
+
 SP_EXPORT int
 strand_defer_b (void (^block)(void));
 

@@ -10,9 +10,14 @@ CFLAGS?= $(CFLAGS_DEBUG)
 CCOPT:= -std=gnu99 -fno-omit-frame-pointer -Iinclude $(CFLAGS)
 LDOPT:= $(LDFLAGS) -fsanitize=address -lsiphon
 
-OBJ:= build/obj/ctx.o build/obj/strand.o build/obj/defer.o
+SRC:= src/ctx.c src/strand.c src/defer.c
+TEST:= test/strand.c
+OBJ:= $(SRC:src/%.c=build/obj/%.o)
 
 all: build/bin/run
+
+test: $(TEST:test/%.c=build/bin/test-%)
+	@for t in $^; do ./$$t; done
 
 -include $(OBJ:.o=.o.d)
 
@@ -22,12 +27,15 @@ build/bin/%: build/obj/%.o $(OBJ) | build/bin
 build/obj/%.o: src/%.c Makefile | build/obj
 	$(CC) $(CCOPT) -MMD -MT $@ -MF $@.d -c $< -o $@
 
+build/obj/test-%.o: test/%.c Makefile | build/obj
+	$(CC) $(CCOPT) -MMD -MT $@ -MF $@.d -c $< -o $@
+
 build/obj build/bin:
 	mkdir -p $@
 
 clean:
 	rm -rf build
 
-.PHONY: all clean
+.PHONY: all test clean
 .PRECIOUS: build/obj/%.o
 

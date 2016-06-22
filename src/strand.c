@@ -471,6 +471,23 @@ strand_new_b (uintptr_t (^block)(uintptr_t val))
 	return s;
 }
 
+Strand *
+strand_new_config_b (uint32_t stack_size, uint32_t flags,
+		uintptr_t (^block)(uintptr_t val))
+{
+	uintptr_t (^copy) (uintptr_t) = Block_copy (block);
+	Strand *s = strand_new_config (stack_size, flags, block_shim, copy);
+
+	if (s == NULL) {
+		Block_release (copy);
+		return NULL;
+	}
+
+	s->flags |= STRAND_FBLOCK;
+
+	return s;
+}
+
 int
 strand_defer_b (void (^block)(void))
 {
