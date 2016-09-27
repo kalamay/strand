@@ -9,7 +9,7 @@
 #include <assert.h>
 
 #if STRAND_BLOCKS
-# define STRAND_FBLOCK ((uint32_t)1 << 31)
+# define STRAND_FBLOCK (UINT32_C(1) << 31)
 #endif
 
 /** Bytes required for the corotoutine rounded up to nearest 16 bytes */

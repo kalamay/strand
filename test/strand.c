@@ -13,7 +13,7 @@ fib (void *data, uintptr_t val)
 		b += r;
 		val = strand_yield (r);
 	}
-	return (uintptr_t)0;
+	return 0;
 }
 
 static uintptr_t
@@ -24,7 +24,7 @@ fib3 (void *data, uintptr_t val)
 		strand_resume (data, 0);
 		val = strand_yield (strand_resume (data, 0));
 	}
-	return (uintptr_t)0;
+	return 0;
 }
 
 static void

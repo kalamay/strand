@@ -10,9 +10,9 @@
 
 #include <siphon/common.h>
 
-#define STRAND_FDEBUG   (1U << 0) /** enable debug statements */
-#define STRAND_FPROTECT (1U << 1) /** protect the end of the stack */
-#define STRAND_FCAPTURE (1U << 2) /** capture stack for new coroutines */
+#define STRAND_FDEBUG   (UINT32_C(1) << 0) /** enable debug statements */
+#define STRAND_FPROTECT (UINT32_C(1) << 1) /** protect the end of the stack */
+#define STRAND_FCAPTURE (UINT32_C(1) << 2) /** capture stack for new coroutines */
 
 /**
  * Minimum allowed stack size
