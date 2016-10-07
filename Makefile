@@ -1,11 +1,11 @@
 ifeq ($(CFLAGS_DEBUG),)
-CFLAGS_DEBUG:= -g -Wall -Wextra -pedantic -Werror -DSTRAND_USE_BLOCKS
+CFLAGS_DEBUG:= -g -Wall -Wextra -pedantic -Werror -march=native -DSTRAND_USE_BLOCKS
 ifneq ($(wildcard /usr/local/include/valgrind/valgrind.h /usr/include/valgrind/valgrind.h),)
 CFLAGS_DEBUG:= $(CFLAGS_DEBUG) -DUSE_VALGRIND
 endif
 endif
 
-CFLAGS_RELEASE?= -O3 -DNDEBUG -DSTRAND_USE_BLOCKS
+CFLAGS_RELEASE?= -O3 -DNDEBUG -DSTRAND_USE_BLOCKS -march=native
 CFLAGS?= $(CFLAGS_DEBUG)
 CCOPT:= -std=gnu99 -fno-omit-frame-pointer -Iinclude $(CFLAGS)
 LDOPT:= $(LDFLAGS)
