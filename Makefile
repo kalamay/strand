@@ -9,7 +9,7 @@ PAGESIZE:= $(shell getconf PAGESIZE)
 CFLAGS_RELEASE?= -O3 -march=native -DNDEBUG -DSTRAND_USE_BLOCKS
 CFLAGS?= $(CFLAGS_DEBUG)
 CCOPT:= -std=gnu99 -fno-omit-frame-pointer -Iinclude -DSTRAND_PAGESIZE=$(PAGESIZE) $(CFLAGS)
-LDOPT:= $(LDFLAGS)
+LDOPT:= $(LDFLAGS) -lexecinfo
 
 SRC:= src/strand.c
 TEST:= test/strand.c
