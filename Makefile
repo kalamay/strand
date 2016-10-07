@@ -1,5 +1,5 @@
 ifeq ($(CFLAGS_DEBUG),)
-CFLAGS_DEBUG:= -g -Wall -Wextra -pedantic -Wdocumentation -Werror -DSTRAND_USE_BLOCKS
+CFLAGS_DEBUG:= -g -Wall -Wextra -pedantic -Werror -DSTRAND_USE_BLOCKS
 ifneq ($(wildcard /usr/local/include/valgrind/valgrind.h /usr/include/valgrind/valgrind.h),)
 CFLAGS_DEBUG:= $(CFLAGS_DEBUG) -DUSE_VALGRIND
 endif

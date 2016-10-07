@@ -3,7 +3,6 @@
 
 #include <stdio.h>
 #include <stdint.h>
-#include <inttypes.h>
 
 /**
  * Configures the context to invoke a function with 2 arguments

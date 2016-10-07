@@ -1,5 +1,7 @@
 #include "ctx.h"
 
+#include <inttypes.h>
+
 #if __SIZEOF_POINTER__ == 8
 # define FMTxREG "0x%016" PRIxPTR
 #elif __SIZEOF_POINTER__ == 4

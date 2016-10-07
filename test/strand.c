@@ -6,12 +6,13 @@ static uintptr_t
 fib (void *data, uintptr_t val)
 {
 	(void)data;
+	(void)val;
 	uintptr_t a = 0, b = 1;
 	while (true) {
 		uintptr_t r = a;
 		a = b;
 		b += r;
-		val = strand_yield (r);
+		strand_yield (r);
 	}
 	return 0;
 }
@@ -19,10 +20,11 @@ fib (void *data, uintptr_t val)
 static uintptr_t
 fib3 (void *data, uintptr_t val)
 {
+	(void)val;
 	while (true) {
 		strand_resume (data, 0);
 		strand_resume (data, 0);
-		val = strand_yield (strand_resume (data, 0));
+		strand_yield (strand_resume (data, 0));
 	}
 	return 0;
 }

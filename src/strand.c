@@ -6,6 +6,7 @@
 #include <string.h>
 #include <unistd.h>
 #include <sys/mman.h>
+#include <inttypes.h>
 #include <assert.h>
 #include <errno.h>
 
