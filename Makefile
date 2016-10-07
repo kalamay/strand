@@ -21,7 +21,9 @@ CFLAGS:= \
 	-DSTRAND_EXECINFO=$(EXECINFO) \
 	$(CFLAGS) -std=gnu99 -fno-omit-frame-pointer -MMD -MP
 ifeq ($(EXECINFO),1)
+ifneq ($(wildcard /usr/lib/libexecinfo.so,)
 LDFLAGS:= $(LDFLAGS) -lexecinfo
+endif
 endif
 
 SRC:= src/strand.c
