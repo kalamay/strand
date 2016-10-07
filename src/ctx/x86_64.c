@@ -10,30 +10,37 @@
 #define RSP 9
 
 static uintptr_t *
-stack_pointer (void *stack, size_t len)
+stack_start (void *stack, size_t len)
 {
-	uintptr_t *sp = (uintptr_t *)((uint8_t *)stack + len);
-	sp = (void *)((uintptr_t)sp - (uintptr_t)sp%16);
-	return sp - 1;
+	uintptr_t *s = (uintptr_t *)((uint8_t *)stack + len);
+	s = (void *)((uintptr_t)s - (uintptr_t)s%16);
+	return s - 1;
 }
 
 void
 strand_ctx_init (uintptr_t *ctx, void *stack, size_t len,
 		uintptr_t ip, uintptr_t a1, uintptr_t a2)
 {
-	uintptr_t *sp = stack_pointer (stack, len);
-	*sp = 0;
+	uintptr_t *s = stack_start (stack, len);
+	*s = 0;
 	ctx[RDI] = a1;
 	ctx[RSI] = a2;
 	ctx[RIP] = ip;
-	ctx[RSP] = (uintptr_t)sp;
+	ctx[RSP] = (uintptr_t)s;
 }
 
 size_t
-strand_ctx_stack_size (const uintptr_t *ctx, void *stack, size_t len)
+strand_ctx_stack_size (const uintptr_t *ctx, void *stack, size_t len, bool current)
 {
-	uintptr_t *sp = stack_pointer (stack, len);
-	return (uintptr_t)sp - ctx[RSP];
+	uintptr_t *s = stack_start (stack, len);
+	uintptr_t sp;
+	if (current) {
+		__asm__ ("movq %%rsp, %0" : "=r" (sp));
+	}
+	else {
+		sp = ctx[RSP];
+	}
+	return (uintptr_t)s - sp;
 }
 
 void

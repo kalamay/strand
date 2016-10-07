@@ -463,7 +463,7 @@ strand_alive (const Strand *s)
 size_t
 strand_stack_used (const Strand *s)
 {
-	return strand_ctx_stack_size (s->ctx, MAP_BEGIN (s), STACK_SIZE (s));
+	return strand_ctx_stack_size (s->ctx, MAP_BEGIN (s), STACK_SIZE (s), s == current);
 }
 
 int
@@ -515,13 +515,12 @@ strand_calloc (size_t count, size_t size)
 void
 strand_print (const Strand *s, FILE *out)
 {
-	if (out == NULL) {
-		out = stdout;
+	if (s == NULL) {
+		s = current;
 	}
 
-	if (s == NULL) {
-		fprintf (out, "#<Strand:(null)>\n");
-		return;
+	if (out == NULL) {
+		out = stdout;
 	}
 
 	fprintf (out, FMT " {\n", FMTARGS (s));

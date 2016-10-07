@@ -34,13 +34,14 @@ strand_ctx_init (uintptr_t *ctx, void *stack, size_t len,
 /**
  * Gets the current stack space usage in bytes
  *
- * @param  ctx    context pointer
- * @param  stack  lowest address of the stack
- * @param  len    byte length of the stack
+ * @param  ctx      context pointer
+ * @param  stack    lowest address of the stack
+ * @param  len      byte length of the stack
+ * @param  current  is the context currently active
  * @return  number of bytes
  */
 extern size_t
-strand_ctx_stack_size (const uintptr_t *ctx, void *stack, size_t len);
+strand_ctx_stack_size (const uintptr_t *ctx, void *stack, size_t len, bool current);
 
 /**
  * Prints the value of the context
