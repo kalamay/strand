@@ -5,7 +5,7 @@
 # include <sys/param.h>
 #endif
 
-#if defined (__BLOCKS__) && defined (STRAND_USE_BLOCKS)
+#if defined (__BLOCKS__)
 # define STRAND_BLOCKS 1
 # include <Block.h>
 #endif

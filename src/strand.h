@@ -1,8 +1,6 @@
 #ifndef STRAND_H
 #define STRAND_H
 
-#include "config.h"
-
 #include <stdio.h>
 #include <stdint.h>
 #include <stdbool.h>
@@ -199,7 +197,7 @@ strand_calloc (size_t count, size_t size);
 extern void
 strand_print (const Strand *s, FILE *out);
 
-#if STRAND_BLOCKS
+#if defined (__BLOCKS__)
 
 extern Strand *
 strand_new_b (uintptr_t (^block)(uintptr_t val));

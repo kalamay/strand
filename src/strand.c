@@ -1,4 +1,5 @@
 #include "strand.h"
+#include "config.h"
 #include "ctx.h"
 
 #include <stdlib.h>
@@ -6,9 +7,12 @@
 #include <unistd.h>
 #include <sys/mman.h>
 #include <inttypes.h>
-#include <execinfo.h>
 #include <assert.h>
 #include <errno.h>
+
+#if STRAND_EXECINFO
+# include <execinfo.h>
+#endif
 
 #if STRAND_X86_64
 # include "ctx/x86_64.c"
@@ -343,6 +347,7 @@ new (StrandConfig cfg, uintptr_t (*fn)(void *, uintptr_t), void *data)
 	strand_ctx_init (s->ctx, stack, STACK_SIZE (s),
 			(uintptr_t)entry, (uintptr_t)s, (uintptr_t)fn);
 
+#if STRAND_EXECINFO
 	if (cfg.cfg.flags & STRAND_FCAPTURE) {
 		void *calls[32];
 		int frames = backtrace (calls, sizeof calls / sizeof calls[0]);
@@ -351,6 +356,7 @@ new (StrandConfig cfg, uintptr_t (*fn)(void *, uintptr_t), void *data)
 			s->nbacktrace = frames;
 		}
 	}
+#endif
 
 	return s;
 }
