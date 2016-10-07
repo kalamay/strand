@@ -1,7 +1,7 @@
 #ifndef STRAND_DEFER_H
 #define STRAND_DEFER_H
 
-#include <siphon/common.h>
+#include <sys/types.h>
 
 typedef struct StrandDefer StrandDefer;
 
@@ -16,7 +16,7 @@ typedef struct StrandDefer StrandDefer;
  * @param  data  data to pass to `fn`
  * @return  `0` on success `-errno` on failure
  */
-SP_EXPORT int
+extern int
 strand_defer_add (StrandDefer **d, void (*fn) (void *), void *data);
 
 /**
@@ -26,7 +26,7 @@ strand_defer_add (StrandDefer **d, void (*fn) (void *), void *data);
  *
  * @param  d  reference to head of deferred list
  */
-SP_EXPORT void
+extern void
 strand_defer_run (StrandDefer **d);
 
 /**
@@ -36,7 +36,7 @@ strand_defer_run (StrandDefer **d);
  * @param  size  number of bytes to allocate
  * @return  pointer to allocation or `NULL`
  */
-SP_EXPORT void *
+extern void *
 strand_defer_malloc (StrandDefer **d, size_t size);
 
 /**
@@ -47,10 +47,10 @@ strand_defer_malloc (StrandDefer **d, size_t size);
  * @param  size   number of bytes for each object
  * @return  pointer to allocation or `NULL`
  */
-SP_EXPORT void *
+extern void *
 strand_defer_calloc (StrandDefer **d, size_t count, size_t size);
 
-#ifdef __BLOCKS__
+#if STRAND_BLOCKS
 
 /**
  * Append a deferred block to the list
@@ -62,7 +62,7 @@ strand_defer_calloc (StrandDefer **d, size_t count, size_t size);
  * @param  block  blok for later execution
  * @return  `0` on success `-errno` on failure
  */
-SP_EXPORT int
+export int
 strand_defer_add_b (StrandDefer **d, void (^block)(void));
 
 #endif

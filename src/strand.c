@@ -7,9 +7,14 @@
 #include <unistd.h>
 #include <sys/mman.h>
 #include <assert.h>
+#include <errno.h>
 
 #if STRAND_BLOCKS
 # define STRAND_FBLOCK (UINT32_C(1) << 31)
+#endif
+
+#ifndef MAP_STACK
+# define MAP_STACK 0
 #endif
 
 /** Bytes required for the corotoutine rounded up to nearest 16 bytes */
@@ -59,6 +64,8 @@ static const char *state_names[] = {
 #define PRIARGS(s) \
 	(uintptr_t)s, state_names[s->state], strand_stack_used (s)
 
+#define unlikely(x) __builtin_expect(!!(x), 0)
+
 /**
  * Runtime assert that prints stack and error information before aborting
  *
@@ -67,13 +74,16 @@ static const char *state_names[] = {
  * @param  ...  printf-style expression to print before aborting
  */
 #define ensure(s, exp, ...) do {                                  \
-	if (sp_unlikely (!(exp))) {                                   \
+	if (unlikely (!(exp))) {                                      \
 		Strand *s_tmp = (s);                                      \
 		if (s_tmp != NULL && s_tmp->backtrace != NULL) {          \
 			fprintf (stderr, "error with coroutine " PRI ":\n%s", \
 					PRIARGS(s_tmp), s_tmp->backtrace);            \
 		}                                                         \
-		sp_fabort (__VA_ARGS__);                                  \
+		fprintf (stderr, __VA_ARGS__);                            \
+		fputc ('\n', stderr);                                     \
+		fflush (stderr);                                          \
+		abort ();                                                 \
 	}                                                             \
 } while (0)
 
@@ -84,10 +94,14 @@ static const char *state_names[] = {
  * @return  if the coroutine is in debug mode
  */
 #define debug(s) \
-	sp_unlikely ((s)->flags & STRAND_FDEBUG)
+	unlikely ((s)->flags & STRAND_FDEBUG)
 
 struct Strand {
-	uintptr_t ctx[STRAND_CTX_REG_COUNT];
+#if defined(__x86_64__)
+	uintptr_t ctx[10];
+#elif defined(__i386__)
+	uintptr_t ctx[7];
+#endif
 	Strand *parent;
 	void *data;
 	uintptr_t value;
@@ -184,7 +198,7 @@ map_alloc (uint32_t map_size)
 {
 	uint8_t *map = map_revive (map_size);
 	if (map == NULL) {
-		map = mmap (NULL, map_size, PROT_READ|PROT_WRITE, MAP_ANONYMOUS|MAP_PRIVATE, -1, 0);
+		map = mmap (NULL, map_size, PROT_READ|PROT_WRITE, MAP_ANON|MAP_PRIVATE|MAP_STACK, -1, 0);
 		if (map == MAP_FAILED) {
 			map = NULL;
 		}
@@ -250,9 +264,10 @@ new (StrandConfig cfg, uintptr_t (*fn)(void *, uintptr_t), void *data)
 		return NULL;
 	}
 
-	Strand *s = NULL;
+	// round to nearest page with additional page to accomodate the strand object
+	uint32_t map_size = (((cfg.cfg.stack_size - 1) / page_size) + 2) * page_size;
 	uint8_t *map = NULL;
-	uint32_t map_size = sp_next_quantum (cfg.cfg.stack_size, page_size) + page_size;
+	Strand *s = NULL;
 
 	if (cfg.cfg.flags & STRAND_FPROTECT) {
 		map_size += page_size;

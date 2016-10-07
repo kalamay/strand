@@ -1,5 +1,5 @@
 ifeq ($(CFLAGS_DEBUG),)
-CFLAGS_DEBUG:= -g -fsanitize=address -Wall -Wextra -pedantic -Wdocumentation -Werror -DSTRAND_USE_BLOCKS
+CFLAGS_DEBUG:= -g -Wall -Wextra -pedantic -Wdocumentation -Werror -DSTRAND_USE_BLOCKS
 ifneq ($(wildcard /usr/local/include/valgrind/valgrind.h /usr/include/valgrind/valgrind.h),)
 CFLAGS_DEBUG:= $(CFLAGS_DEBUG) -DUSE_VALGRIND
 endif
@@ -8,7 +8,7 @@ endif
 CFLAGS_RELEASE?= -O3 -DNDEBUG -DSTRAND_USE_BLOCKS
 CFLAGS?= $(CFLAGS_DEBUG)
 CCOPT:= -std=gnu99 -fno-omit-frame-pointer -Iinclude $(CFLAGS)
-LDOPT:= $(LDFLAGS) -fsanitize=address -lsiphon
+LDOPT:= $(LDFLAGS)
 
 SRC:= src/ctx.c src/strand.c src/defer.c
 TEST:= test/strand.c

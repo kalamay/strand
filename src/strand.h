@@ -8,8 +8,6 @@
 #include <stdbool.h>
 #include <limits.h>
 
-#include <siphon/common.h>
-
 #define STRAND_FDEBUG   (UINT32_C(1) << 0) /** enable debug statements */
 #define STRAND_FPROTECT (UINT32_C(1) << 1) /** protect the end of the stack */
 #define STRAND_FCAPTURE (UINT32_C(1) << 2) /** capture stack for new coroutines */
@@ -57,7 +55,7 @@ typedef struct Strand Strand;
  * @param  stack_size  minimun stack size allocated
  * @param  flags       configuration flags
  */
-SP_EXPORT void
+extern void
 strand_configure (uint32_t stack_size, uint32_t flags);
 
 /**
@@ -71,7 +69,7 @@ strand_configure (uint32_t stack_size, uint32_t flags);
  * @param  data  user pointer to associate with the coroutine
  * @return  new coroutine or `NULL` on error
  */
-SP_EXPORT Strand *
+extern Strand *
 strand_new (uintptr_t (*fn)(void *, uintptr_t), void *data);
 
 /**
@@ -86,7 +84,7 @@ strand_new (uintptr_t (*fn)(void *, uintptr_t), void *data);
  * @param  data  user pointer to associate with the coroutine
  * @return  new coroutine or `NULL` on error
  */
-SP_EXPORT Strand *
+extern Strand *
 strand_new_config (uint32_t stack_size, uint32_t flags,
 		uintptr_t (*fn)(void *, uintptr_t), void *data);
 
@@ -100,7 +98,7 @@ strand_new_config (uint32_t stack_size, uint32_t flags,
  *
  * @param  sp  reference to the coroutine pointer to free
  */
-SP_EXPORT void
+extern void
 strand_free (Strand **sp);
 
 /**
@@ -115,7 +113,7 @@ strand_free (Strand **sp);
  * @param  val  value to send to the context
  * @return  value passed into `strand_resume`
  */
-SP_EXPORT uintptr_t
+extern uintptr_t
 strand_yield (uintptr_t val);
 
 /**
@@ -132,7 +130,7 @@ strand_yield (uintptr_t val);
  * @param  s    coroutine to activate
  * @param  val  value to pass to the coroutine
  */
-SP_EXPORT uintptr_t
+extern uintptr_t
 strand_resume (Strand *s, uintptr_t val);
 
 /**
@@ -149,7 +147,7 @@ strand_resume (Strand *s, uintptr_t val);
  * @param  s  the coroutine to test or `NULL`
  * @return  `true` if alive, `false` if dead
  */
-SP_EXPORT bool
+extern bool
 strand_alive (const Strand *s);
 
 /**
@@ -158,7 +156,7 @@ strand_alive (const Strand *s);
  * @param  s  the coroutine to access
  * @return  number of bytes used
  */
-SP_EXPORT size_t
+extern size_t
 strand_stack_used (const Strand *s);
 
 /**
@@ -167,10 +165,10 @@ strand_stack_used (const Strand *s);
  * This will be called after the return of the coroutine function but before
  * yielding back to the parent context. Deferred calls occur in LIFO order.
  *
- * @oaram  fn    function to call
+ * @param  fn    function to call
  * @param  data  data to pass to `fn`
  */
-SP_EXPORT int
+extern int
 strand_defer (void (*fn) (void *), void *data);
 
 /**
@@ -179,7 +177,7 @@ strand_defer (void (*fn) (void *), void *data);
  * @param  size  number of bytes to allocate
  * @return  point or `NULL` on error
  */
-SP_EXPORT void *
+extern void *
 strand_malloc (size_t size);
 
 /**
@@ -189,7 +187,7 @@ strand_malloc (size_t size);
  * @param  size   number of bytes for each object
  * @return  point or `NULL` on error
  */
-SP_EXPORT void *
+extern void *
 strand_calloc (size_t count, size_t size);
 
 /**
@@ -198,19 +196,19 @@ strand_calloc (size_t count, size_t size);
  * @param  s    the coroutine to print or `NULL`
  * @param  out  `FILE *` handle to write to or `NULL`
  */
-SP_EXPORT void
+extern void
 strand_print (const Strand *s, FILE *out);
 
 #if STRAND_BLOCKS
 
-SP_EXPORT Strand *
+extern Strand *
 strand_new_b (uintptr_t (^block)(uintptr_t val));
 
-SP_EXPORT Strand *
+extern Strand *
 strand_new_config_b (uint32_t stack_size, uint32_t flags,
 		uintptr_t (^block)(uintptr_t val));
 
-SP_EXPORT int
+extern int
 strand_defer_b (void (^block)(void));
 
 #endif
