@@ -451,14 +451,15 @@ strand_defer (void (*fn) (void *), void *data)
 	}
 	else {
 		def = malloc (sizeof (*def));
-		if (def == NULL) return -errno;
+		if (def == NULL) {
+			return -errno;
+		}
 	}
 
-	StrandDefer **defp = &current->defer;
-	def->next = *defp;
+	def->next = current->defer;
 	def->fn = fn;
 	def->data = data;
-	*defp = def;
+	current->defer = def;
 
 	return 0;
 }
