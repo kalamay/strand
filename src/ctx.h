@@ -3,6 +3,19 @@
 
 #include <stdio.h>
 #include <stdint.h>
+#include <inttypes.h>
+
+#if __SIZEOF_POINTER__ == 8
+# define FMTxREG "0x%016" PRIxPTR
+#elif __SIZEOF_POINTER__ == 4
+# define FMTxREG "0x%08" PRIxPTR
+#endif
+
+#if defined (__x86_64__)
+# define STRAND_CTX_REG_COUNT 10
+#elif defined (__i386__)
+# define STRAND_CTX_REG_COUNT 7
+#endif
 
 /**
  * Configures the context to invoke a function with 2 arguments
