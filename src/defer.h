@@ -62,7 +62,7 @@ strand_defer_calloc (StrandDefer **d, size_t count, size_t size);
  * @param  block  blok for later execution
  * @return  `0` on success `-errno` on failure
  */
-export int
+extern int
 strand_defer_add_b (StrandDefer **d, void (^block)(void));
 
 #endif
