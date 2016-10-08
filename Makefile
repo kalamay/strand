@@ -10,7 +10,7 @@ CFLAGS?= $(CFLAGS_DEBUG)
 CCOPT:= -std=gnu99 -fno-omit-frame-pointer -Iinclude $(CFLAGS)
 LDOPT:= $(LDFLAGS) -fsanitize=address
 
-SRC:= src/ctx.c src/strand.c
+SRC:= src/strand.c
 TEST:= test/strand.c
 OBJ:= $(SRC:src/%.c=build/obj/%.o)
 

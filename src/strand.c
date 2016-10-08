@@ -9,6 +9,10 @@
 #include <assert.h>
 #include <errno.h>
 
+#if STRAND_X86_64
+# include "ctx/x86_64.c"
+#endif
+
 #if STRAND_BLOCKS
 # define STRAND_FBLOCK (UINT32_C(1) << 31)
 #endif
