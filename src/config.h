@@ -35,7 +35,7 @@
 # define STRAND_ARM7 1
 #endif
 
-#if defined (ARMV7) || \
+#if defined (STRAND_ARMV7) || \
     defined (__ARM_ARCH_6__) || \
     defined (__ARM_ARCH_6J__) || \
     defined (__ARM_ARCH_6K__) || \
@@ -45,7 +45,7 @@
 # define STRAND_ARM6 1
 #endif
 
-#if defined (ARMV6) || \
+#if defined (STRAND_ARMV6) || \
     defined (__ARM_ARCH_5T__) || \
     defined (__ARM_ARCH_5E__) || \
     defined (__ARM_ARCH_5TE__) || \
@@ -53,29 +53,29 @@
 # define STRAND_ARM5 1
 #endif
 
-#if defined (ARMV5) || \
+#if defined (STRAND_ARMV5) || \
     defined (__ARM_ARCH_4__) || \
     defined (__ARM_ARCH_4T__)
 # define STRAND_ARM4 1
 #endif
 
-#if defined (ARMV4) || \
+#if defined (STRAND_ARMV4) || \
     defined (__ARM_ARCH_3__) || \
     defined (__ARM_ARCH_3M__)
 # define STRAND_ARM3 1
 #endif
 
-#if defined (ARMV3) || \
+#if defined (STRAND_ARMV3) || \
     defined (__ARM_ARCH_2__)
 # define STRAND_ARM2 1
 #endif
 
-#if defined (ARMV2) || defined (__arm__) || defined (__aarch64__)
+#if STRAND_ARM2
 # define STRAND_ARM 1
 #elif defined (__amd64__) || defined (__x86_64__) || defined (_M_X64) || defined (_M_AMD64)
-# define STRAND_AMD64 1
-#elif defined (__i386__) || defined (_M_IX86) || defined (_X86_) || \
-# define STRAND_X86 1
+# define STRAND_X86_64 1
+#elif defined (__i386__) || defined (_M_IX86) || defined (_X86_)
+# define STRAND_X86_32 1
 #endif
 
 #endif

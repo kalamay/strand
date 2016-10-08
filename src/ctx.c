@@ -1,5 +1,6 @@
 #include "ctx.h"
+#include "config.h"
 
-#if defined (__x86_64__)
+#if STRAND_X86_64
 # include "ctx/x86_64.c"
 #endif
