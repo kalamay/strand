@@ -71,12 +71,43 @@ test_fibonacci (void)
 	mu_assert_uint_eq (expect[9], got[9]);
 }
 
+static void
+defer_count (void *ptr)
+{
+	int *n = ptr;
+	*n = *n + 1;
+}
+
+static uintptr_t
+defer_coro (void *ptr, uintptr_t val)
+{
+	strand_defer (defer_count, ptr);
+	strand_defer (defer_count, ptr);
+	strand_defer (defer_count, ptr);
+	return val;
+}
+
+static void
+test_defer (void)
+{
+	int n = 0;
+
+	Strand *s = strand_new (defer_coro, &n);
+	strand_resume (s, 0);
+
+	mu_assert (!strand_alive (s))
+	mu_assert_int_eq (n, 3);
+
+	strand_free (&s);
+}
+
 int
 main (void)
 {
 	mu_init ("strand");
 
 	test_fibonacci ();
+	test_defer ();
 
 	mu_exit ();
 }
