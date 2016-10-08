@@ -1,6 +1,5 @@
 #include "strand.h"
 #include "ctx.h"
-#include "defer.h"
 
 #include <stdlib.h>
 #include <string.h>
@@ -97,12 +96,16 @@ static const char *state_names[] = {
 #define debug(s) \
 	unlikely ((s)->flags & STRAND_FDEBUG)
 
+typedef struct StrandDefer StrandDefer;
+
+struct StrandDefer {
+	StrandDefer *next;
+	void (*fn) (void *);
+	void *data;
+};
+
 struct Strand {
-#if defined(__x86_64__)
-	uintptr_t ctx[10];
-#elif defined(__i386__)
-	uintptr_t ctx[7];
-#endif
+	uintptr_t ctx[STRAND_CTX_REG_COUNT];
 	Strand *parent;
 	void *data;
 	uintptr_t value;
@@ -126,6 +129,7 @@ typedef union {
 static __thread Strand top = { .state = CURRENT };
 static __thread Strand *current = NULL;
 static __thread Strand *dead = NULL;
+static __thread StrandDefer *pool = NULL;
 
 static StrandConfig config = {
 	.cfg = {
@@ -207,6 +211,23 @@ map_alloc (uint32_t map_size)
 	return map;
 }
 
+static void
+defer_run (StrandDefer **d)
+{
+	assert (d != NULL);
+
+	StrandDefer *def = *d;
+	*d = NULL;
+
+	while (def) {
+		StrandDefer *next = def->next;
+		def->fn (def->data);
+		def->next = pool;
+		pool = def;
+		def = next;
+	}
+}
+
 /**
  * Entry point for a new coroutine
  *
@@ -228,7 +249,7 @@ entry (Strand *s, uintptr_t (*fn)(void *, uintptr_t))
 	s->value = val;
 	s->state = DEAD;
 	parent->state = CURRENT;
-	strand_defer_run (&s->defer);
+	defer_run (&s->defer);
 	strand_ctx_swap (s->ctx, parent->ctx);
 }
 
@@ -349,7 +370,7 @@ strand_free (Strand **sp)
 
 	*sp = NULL;
 
-	strand_defer_run (&s->defer);
+	defer_run (&s->defer);
 	free (s->backtrace);
 
 #if STRAND_VALGRIND
@@ -418,19 +439,46 @@ strand_stack_used (const Strand *s)
 int
 strand_defer (void (*fn) (void *), void *data)
 {
-	return strand_defer_add (&current->defer, fn, data);
+	assert (fn != NULL);
+
+	StrandDefer *def = pool;
+	if (def != NULL) {
+		pool = def->next;
+	}
+	else {
+		def = malloc (sizeof (*def));
+		if (def == NULL) return -errno;
+	}
+
+	StrandDefer **defp = &current->defer;
+	def->next = *defp;
+	def->fn = fn;
+	def->data = data;
+	*defp = def;
+
+	return 0;
+}
+
+static void *
+defer_alloc (void *val)
+{
+	if (val != NULL && strand_defer (free, val) < 0) {
+		free (val);
+		val = NULL;
+	}
+	return val;
 }
 
 void *
 strand_malloc (size_t size)
 {
-	return strand_defer_malloc (&current->defer, size);
+	return defer_alloc (malloc (size));
 }
 
 void *
 strand_calloc (size_t count, size_t size)
 {
-	return strand_defer_calloc (&current->defer, count, size);
+	return defer_alloc (calloc (count, size));
 }
 
 void
@@ -504,10 +552,23 @@ strand_new_config_b (uint32_t stack_size, uint32_t flags,
 	return s;
 }
 
+static void
+defer_shim (void *data)
+{
+	void (^block)(void) = data;
+	block ();
+	Block_release (block);
+}
+
 int
 strand_defer_b (void (^block)(void))
 {
-	return strand_defer_add_b (&current->defer, block);
+	void (^copy) (void) = Block_copy (block);
+	int rc = strand_defer (defer_shim, copy);
+	if (rc < 0) {
+		Block_release (copy);
+	}
+	return rc;
 }
 
 #endif

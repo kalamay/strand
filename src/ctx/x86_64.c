@@ -12,7 +12,7 @@
 static uintptr_t *
 stack_pointer (void *stack, size_t len)
 {
-    uintptr_t *sp = (uintptr_t *)((uint8_t *)stack + len);
+	uintptr_t *sp = (uintptr_t *)((uint8_t *)stack + len);
 	sp = (void *)((uintptr_t)sp - (uintptr_t)sp%16);
 	return --sp;
 }
@@ -21,7 +21,7 @@ void
 strand_ctx_init (uintptr_t *ctx, void *stack, size_t len,
 		uintptr_t ip, uintptr_t a1, uintptr_t a2)
 {
-    uintptr_t *sp = stack_pointer (stack, len);
+	uintptr_t *sp = stack_pointer (stack, len);
 	*sp = 0;
 	ctx[RDI] = a1;
 	ctx[RSI] = a2;
@@ -32,7 +32,7 @@ strand_ctx_init (uintptr_t *ctx, void *stack, size_t len,
 size_t
 strand_ctx_stack_size (const uintptr_t *ctx, void *stack, size_t len)
 {
-    uintptr_t *sp = stack_pointer (stack, len);
+	uintptr_t *sp = stack_pointer (stack, len);
 	return (uintptr_t)sp - ctx[RSP];
 }
 
