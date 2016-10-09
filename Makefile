@@ -8,7 +8,7 @@ endif
 CFLAGS_RELEASE?= -O3 -march=native -DNDEBUG -DSTRAND_USE_BLOCKS
 CFLAGS?= $(CFLAGS_DEBUG)
 CCOPT:= -std=gnu99 -fno-omit-frame-pointer -Iinclude $(CFLAGS)
-LDOPT:= $(LDFLAGS) -fsanitize=address
+LDOPT:= $(LDFLAGS)
 
 SRC:= src/strand.c
 TEST:= test/strand.c
