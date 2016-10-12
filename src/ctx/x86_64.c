@@ -14,7 +14,7 @@ stack_pointer (void *stack, size_t len)
 {
 	uintptr_t *sp = (uintptr_t *)((uint8_t *)stack + len);
 	sp = (void *)((uintptr_t)sp - (uintptr_t)sp%16);
-	return --sp;
+	return sp - 1;
 }
 
 void

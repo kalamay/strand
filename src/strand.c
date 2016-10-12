@@ -102,12 +102,6 @@ static const char *state_names[] = {
 
 typedef struct StrandDefer StrandDefer;
 
-struct StrandDefer {
-	StrandDefer *next;
-	void (*fn) (void *);
-	void *data;
-};
-
 struct Strand {
 	uintptr_t ctx[STRAND_CTX_REG_COUNT];
 	Strand *parent;
@@ -120,6 +114,12 @@ struct Strand {
 #if STRAND_VALGRIND
 	unsigned int stack_id;
 #endif
+};
+
+struct StrandDefer {
+	StrandDefer *next;
+	void (*fn) (void *);
+	void *data;
 };
 
 typedef union {
@@ -267,15 +267,15 @@ entry (Strand *s, uintptr_t (*fn)(void *, uintptr_t))
  *
  * For downward growing stacks, the mapping layout looks like:
  *
- *     +------+--------------------+--------+
- *     | lock | stack              | strand |
- *     +------+--------------------+--------+
+ *     +--------+--------------------+--------+
+ *     |  lock  | stack              | strand |
+ *     +--------+--------------------+--------+
  *
  * For upward growing stack, the mapping would probably look like:
  *
- *     +--------+--------------------+------+
- *     | strand | stack              | lock |
- *     +--------+--------------------+------+
+ *     +--------+--------------------+--------+
+ *     | strand | stack              |  lock  |
+ *     +--------+--------------------+--------+
  *
  * @param  cfg   configuration struct value
  * @param  fn    function for the body of the coroutine
