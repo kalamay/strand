@@ -106,6 +106,8 @@ main (void)
 {
 	mu_init ("strand");
 
+	strand_configure (STRAND_STACK_DEFAULT, STRAND_FLAGS_DEBUG);
+
 	test_fibonacci ();
 	test_defer ();
 

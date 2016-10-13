@@ -485,7 +485,7 @@ strand_defer (void (*fn) (void *), void *data)
 }
 
 static void *
-defer_alloc (void *val)
+defer_free (void *val)
 {
 	if (val != NULL && strand_defer (free, val) < 0) {
 		free (val);
@@ -497,13 +497,13 @@ defer_alloc (void *val)
 void *
 strand_malloc (size_t size)
 {
-	return defer_alloc (malloc (size));
+	return defer_free (malloc (size));
 }
 
 void *
 strand_calloc (size_t count, size_t size)
 {
-	return defer_alloc (calloc (count, size));
+	return defer_free (calloc (count, size));
 }
 
 void
@@ -518,10 +518,10 @@ strand_print (const Strand *s, FILE *out)
 		return;
 	}
 
-	fprintf (out, FMT " {>\n", FMTARGS (s));
+	fprintf (out, FMT " {\n", FMTARGS (s));
 	strand_ctx_print (s->ctx, out);
 	if (s->nbacktrace > 0) {
-		fprintf (out, "\n\tbacktrace:\n");
+		fprintf (out, "\tbacktrace:\n");
 		for (int i = 0; i < s->nbacktrace; i++) {
 			fprintf (stderr, "\t\t%s\n", s->backtrace[i]);
 		}
