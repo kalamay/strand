@@ -5,9 +5,10 @@ CFLAGS_DEBUG:= $(CFLAGS_DEBUG) -DUSE_VALGRIND
 endif
 endif
 
+PAGESIZE:= $(shell getconf PAGESIZE)
 CFLAGS_RELEASE?= -O3 -march=native -DNDEBUG -DSTRAND_USE_BLOCKS
 CFLAGS?= $(CFLAGS_DEBUG)
-CCOPT:= -std=gnu99 -fno-omit-frame-pointer -Iinclude $(CFLAGS)
+CCOPT:= -std=gnu99 -fno-omit-frame-pointer -Iinclude -DSTRAND_PAGESIZE=$(PAGESIZE) $(CFLAGS)
 LDOPT:= $(LDFLAGS)
 
 SRC:= src/strand.c

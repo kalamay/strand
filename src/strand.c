@@ -6,6 +6,7 @@
 #include <unistd.h>
 #include <sys/mman.h>
 #include <inttypes.h>
+#include <execinfo.h>
 #include <assert.h>
 #include <errno.h>
 
@@ -17,22 +18,23 @@
 # define STRAND_FBLOCK (UINT32_C(1) << 31)
 #endif
 
+#ifndef STRAND_PAGESIZE
+# define STRAND_PAGESIZE getpagesize()
+#endif
+
 #ifndef MAP_STACK
 # define MAP_STACK 0
 #endif
 
-/** Bytes required for the corotoutine rounded up to nearest 16 bytes */
-#define STRAND_SIZE \
-	(sizeof (Strand) + (16 - (sizeof (Strand) % 16)))
-
 /**
  * The stack size in bytes including the extra space below the corotoutine
+ * and the protected page
  *
  * @param  s  coroutine pointer
  * @return  total size of the stack
  */
 #define STACK_SIZE(s) \
-	((s)->map_size - STRAND_SIZE)
+	((s)->map_size - sizeof (Strand))
 
 /**
  * Get the mapped address from a coroutine
@@ -40,8 +42,13 @@
  * @param  s  coroutine pointer
  * @return  mapped address
  */
-#define MAP_BEGIN(s) \
-	((uint8_t *)(s) + STRAND_SIZE - (s)->map_size)
+#if STACK_GROWS_UP
+# define MAP_BEGIN(s) \
+	((uint8_t *)(s))
+#else
+# define MAP_BEGIN(s) \
+	((uint8_t *)(s) + sizeof (Strand) - (s)->map_size)
+#endif
 
 #define SUSPENDED 0  /** new created or yielded */
 #define CURRENT   1  /** currently has context */
@@ -57,18 +64,16 @@ static const char *state_names[] = {
 };
 
 /** Print format string for a Strand pointer */
-#define PRI "#<Strand:%012" PRIxPTR " state=%s, stack=%zd>"
+#define FMT "#<Strand:%012" PRIxPTR " state=%s, stack=%zd>"
 
 /**
- * Expands into the arguments to fill in the `PRI` format specifiers
+ * Expands into the arguments to fill in the `FMT` format specifiers
  *
  * @param  s  coroutine pointer
  * @return  list of arguments
  */
-#define PRIARGS(s) \
+#define FMTARGS(s) \
 	(uintptr_t)s, state_names[s->state], strand_stack_used (s)
-
-#define unlikely(x) __builtin_expect(!!(x), 0)
 
 /**
  * Runtime assert that prints stack and error information before aborting
@@ -77,18 +82,17 @@ static const char *state_names[] = {
  * @param  exp  expression to ensure is `true`
  * @param  ...  printf-style expression to print before aborting
  */
-#define ensure(s, exp, ...) do {                                  \
-	if (unlikely (!(exp))) {                                      \
-		Strand *s_tmp = (s);                                      \
-		if (s_tmp != NULL && s_tmp->backtrace != NULL) {          \
-			fprintf (stderr, "error with coroutine " PRI ":\n%s", \
-					PRIARGS(s_tmp), s_tmp->backtrace);            \
-		}                                                         \
-		fprintf (stderr, __VA_ARGS__);                            \
-		fputc ('\n', stderr);                                     \
-		fflush (stderr);                                          \
-		abort ();                                                 \
-	}                                                             \
+#define ensure(s, exp, ...) do {                             \
+	if (__builtin_expect (!(exp), 0)) {                      \
+		Strand *s_tmp = (s);                                 \
+		fprintf (stderr, __VA_ARGS__);                       \
+		fprintf (stderr, " (" FMT ")\n", FMTARGS(s_tmp));    \
+		for (int i = 0; i < s_tmp->nbacktrace; i++) {        \
+			fprintf (stderr, "\t%s\n", s_tmp->backtrace[i]); \
+		}                                                    \
+		fflush (stderr);                                     \
+		abort ();                                            \
+	}                                                        \
 } while (0)
 
 /**
@@ -98,7 +102,7 @@ static const char *state_names[] = {
  * @return  if the coroutine is in debug mode
  */
 #define debug(s) \
-	unlikely ((s)->flags & STRAND_FDEBUG)
+	__builtin_expect ((s)->flags & STRAND_FDEBUG, 0)
 
 typedef struct StrandDefer StrandDefer;
 
@@ -108,13 +112,14 @@ struct Strand {
 	void *data;
 	uintptr_t value;
 	StrandDefer *defer;
-	char *backtrace;
+	char **backtrace;
+	int nbacktrace;
 	uint32_t map_size;
 	int state, flags;
 #if STRAND_VALGRIND
 	unsigned int stack_id;
 #endif
-};
+} __attribute__ ((aligned (16)));
 
 struct StrandDefer {
 	StrandDefer *next;
@@ -271,7 +276,7 @@ entry (Strand *s, uintptr_t (*fn)(void *, uintptr_t))
  *     |  lock  | stack              | strand |
  *     +--------+--------------------+--------+
  *
- * For upward growing stack, the mapping would probably look like:
+ * For upward growing stack, the mapping looks like:
  *
  *     +--------+--------------------+--------+
  *     | strand | stack              |  lock  |
@@ -285,14 +290,10 @@ entry (Strand *s, uintptr_t (*fn)(void *, uintptr_t))
 static Strand *
 new (StrandConfig cfg, uintptr_t (*fn)(void *, uintptr_t), void *data)
 {
-	int page_size = getpagesize ();
-	if (page_size < 0) {
-		return NULL;
-	}
-
+	const int page_size = STRAND_PAGESIZE;
 	// round to nearest page with additional page to accomodate the strand object
 	uint32_t map_size = (((cfg.cfg.stack_size - 1) / page_size) + 2) * page_size;
-	uint8_t *map = NULL;
+	uint8_t *map = NULL, *stack = NULL;
 	Strand *s = NULL;
 
 	if (cfg.cfg.flags & STRAND_FPROTECT) {
@@ -304,33 +305,52 @@ new (StrandConfig cfg, uintptr_t (*fn)(void *, uintptr_t), void *data)
 		return NULL;
 	}
 
-	s = (Strand *)(map + map_size - STRAND_SIZE);
-	assert ((uintptr_t)s % 16 == 0);
+#if STACK_GROWS_UP
+	stack = map + sizeof (Strand);
+	s = (Strand *)map;
+#else
+	stack = map;
+	s = (Strand *)(map + map_size - sizeof (Strand));
+#endif
 
-	if ((cfg.cfg.flags & STRAND_FPROTECT)
-			&& !(s->flags & STRAND_FPROTECT)
-			&& mprotect (map, page_size, PROT_NONE) < 0) {
-		int err = errno;
-		munmap (map, map_size);
-		errno = err;
-		return NULL;
+	if ((cfg.cfg.flags & STRAND_FPROTECT) && !(s->flags & STRAND_FPROTECT)) {
+#if STACK_GROWS_UP
+		int rc = mprotect (map+map_size-page_size, page_size, PROT_NONE);
+#else
+		int rc = mprotect (map, page_size, PROT_NONE);
+#endif
+		if (rc < 0) {
+			int err = errno;
+			munmap (map, map_size);
+			errno = err;
+			return NULL;
+		}
 	}
-
-	strand_ctx_init (s->ctx, map, STACK_SIZE (s),
-			(uintptr_t)entry, (uintptr_t)s, (uintptr_t)fn);
 
 	s->parent = NULL;
 	s->data = data;
 	s->value = 0;
 	s->defer = NULL;
 	s->backtrace = NULL;
+	s->nbacktrace = 0;
 	s->map_size = map_size;
 	s->state = SUSPENDED;
 	s->flags = cfg.cfg.flags;
-
 #if STRAND_VALGRIND
 	s->stack_id = VALGRIND_STACK_REGISTER (map, STACK_SIZE (s));
 #endif
+
+	strand_ctx_init (s->ctx, stack, STACK_SIZE (s),
+			(uintptr_t)entry, (uintptr_t)s, (uintptr_t)fn);
+
+	if (cfg.cfg.flags & STRAND_FCAPTURE) {
+		void *calls[32];
+		int frames = backtrace (calls, sizeof calls / sizeof calls[0]);
+		if (frames > 0) {
+			s->backtrace = backtrace_symbols (calls, frames);
+			s->nbacktrace = frames;
+		}
+	}
 
 	return s;
 }
@@ -498,8 +518,14 @@ strand_print (const Strand *s, FILE *out)
 		return;
 	}
 
-	fprintf (out, PRI " {>\n", PRIARGS (s));
+	fprintf (out, FMT " {>\n", FMTARGS (s));
 	strand_ctx_print (s->ctx, out);
+	if (s->nbacktrace > 0) {
+		fprintf (out, "\n\tbacktrace:\n");
+		for (int i = 0; i < s->nbacktrace; i++) {
+			fprintf (stderr, "\t\t%s\n", s->backtrace[i]);
+		}
+	}
 	fprintf (out, "}\n");
 }
 
