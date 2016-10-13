@@ -1,5 +1,3 @@
-#define STACK_DIRECTION STACK_DOWN
-
 #define RBX 0
 #define RBP 1
 #define R12 2
