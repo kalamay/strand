@@ -67,10 +67,8 @@ strand_ctx_print (const uintptr_t *ctx, FILE *out)
 __asm__ (
 	".text                          \n"
 #if defined (__APPLE__)
-	".globl _strand_ctx_swap        \n"
 	"_strand_ctx_swap:              \n\t"
 #else
-	".globl strand_ctx_swap         \n"
 	"strand_ctx_swap:               \n\t"
 #endif
 		"movq      %rbx,    0(%rdi) \n\t"

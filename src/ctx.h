@@ -23,7 +23,7 @@
  * @param  a1     first argument to `ip`
  * @param  a2     second argument to `ip`
  */
-extern void
+static void
 strand_ctx_init (uintptr_t *ctx, void *stack, size_t len,
 		uintptr_t ip, uintptr_t a1, uintptr_t a2);
 
@@ -36,7 +36,7 @@ strand_ctx_init (uintptr_t *ctx, void *stack, size_t len,
  * @param  current  is the context currently active
  * @return  number of bytes
  */
-extern size_t
+static size_t
 strand_ctx_stack_size (const uintptr_t *ctx, void *stack, size_t len, bool current);
 
 /**
@@ -45,7 +45,7 @@ strand_ctx_stack_size (const uintptr_t *ctx, void *stack, size_t len, bool curre
  * @param  ctx  context pointer
  * @param  out  output `FILE *` object
  */
-extern void
+static void
 strand_ctx_print (const uintptr_t *ctx, FILE *out);
 
 /**
@@ -54,8 +54,14 @@ strand_ctx_print (const uintptr_t *ctx, FILE *out);
  * @param  save  destination to save current context
  * @param  load  context to activate
  */
-extern void
+void
 strand_ctx_swap (uintptr_t *save, const uintptr_t *load);
+
+#if STRAND_X86_64
+# include "ctx/x86_64.c"
+#elif STRAND_X86_32
+# include "ctx/x86_32.c"
+#endif
 
 #endif
 
