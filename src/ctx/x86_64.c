@@ -32,8 +32,8 @@ strand_ctx_init (uintptr_t *ctx, void *stack, size_t len,
 size_t
 strand_ctx_stack_size (const uintptr_t *ctx, void *stack, size_t len, bool current)
 {
-	uintptr_t *s = stack_start (stack, len);
-	uintptr_t sp;
+	register uintptr_t *s = stack_start (stack, len);
+	register uintptr_t sp;
 	if (current) {
 		__asm__ ("movq %%rsp, %0" : "=r" (sp));
 	}
@@ -70,28 +70,28 @@ __asm__ (
 	".globl strand_ctx_swap\n"
 	"strand_ctx_swap:\n\t"
 #endif
-		"movq      %rbx,    0(%rdi)\r\n"
-		"movq      %rbp,    8(%rdi)\r\n"
-		"movq      %r12,   16(%rdi)\r\n"
-		"movq      %r13,   24(%rdi)\r\n"
-		"movq      %r14,   32(%rdi)\r\n"
-		"movq      %r15,   40(%rdi)\r\n"
-		"movq      %rdi,   48(%rdi)\r\n"
-		"movq      %rsi,   56(%rdi)\r\n"
-		"movq     (%rsp),     %rcx\r\n"  // %rip
-		"movq      %rcx,   64(%rdi)\r\n"
-		"leaq    8(%rsp),     %rcx\r\n"  // %rsp
-		"movq      %rcx,   72(%rdi)\r\n"
-		"movq   72(%rsi),     %rsp\r\n"
-		"movq    0(%rsi),     %rbx\r\n"
-		"movq    8(%rsi),     %rbp\r\n"
-		"movq   16(%rsi),     %r12\r\n"
-		"movq   24(%rsi),     %r13\r\n"
-		"movq   32(%rsi),     %r14\r\n"
-		"movq   40(%rsi),     %r15\r\n"
-		"movq   48(%rsi),     %rdi\r\n"
-		"movq   64(%rsi),     %rcx\r\n"
-		"movq   56(%rsi),     %rsi\r\n"
-		"jmp      *%rcx\r\n"
+		"movq      %rbx,    0(%rdi) \r\n"
+		"movq      %rbp,    8(%rdi) \r\n"
+		"movq      %r12,   16(%rdi) \r\n"
+		"movq      %r13,   24(%rdi) \r\n"
+		"movq      %r14,   32(%rdi) \r\n"
+		"movq      %r15,   40(%rdi) \r\n"
+		"movq      %rdi,   48(%rdi) \r\n"
+		"movq      %rsi,   56(%rdi) \r\n"
+		"movq     (%rsp),     %rcx  \r\n" // %rip
+		"movq      %rcx,   64(%rdi) \r\n"
+		"leaq    8(%rsp),     %rcx  \r\n" // %rsp
+		"movq      %rcx,   72(%rdi) \r\n"
+		"movq   72(%rsi),     %rsp  \r\n"
+		"movq    0(%rsi),     %rbx  \r\n"
+		"movq    8(%rsi),     %rbp  \r\n"
+		"movq   16(%rsi),     %r12  \r\n"
+		"movq   24(%rsi),     %r13  \r\n"
+		"movq   32(%rsi),     %r14  \r\n"
+		"movq   40(%rsi),     %r15  \r\n"
+		"movq   48(%rsi),     %rdi  \r\n"
+		"movq   64(%rsi),     %rcx  \r\n"
+		"movq   56(%rsi),     %rsi  \r\n"
+		"jmp      *%rcx             \r\n"
 );
 
