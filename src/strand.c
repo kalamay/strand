@@ -183,7 +183,7 @@ config_make (uint32_t stack_size, uint32_t flags)
  * @return  pointer to mapped region or `NULL` if nothing to revive
  */
 static uint8_t *
-map_revive (uint32_t map_size)
+map_revive (uint32_t *map_size)
 {
 	Strand *s = dead;
 	if (s == NULL) {
@@ -193,9 +193,12 @@ map_revive (uint32_t map_size)
 	uint8_t *map = MAP_BEGIN (s);
 
 	dead = s->parent;
-	if (s->map_size < map_size) {
+	if (s->map_size < *map_size) {
 		munmap (map, s->map_size);
 		map = NULL;
+	}
+	else {
+		*map_size = s->map_size;
 	}
 
 	return map;
@@ -208,11 +211,11 @@ map_revive (uint32_t map_size)
  * @return  pointer to mapped region or `NULL` on error
  */
 static uint8_t *
-map_alloc (uint32_t map_size)
+map_alloc (uint32_t *map_size)
 {
 	uint8_t *map = map_revive (map_size);
 	if (map == NULL) {
-		map = mmap (NULL, map_size, PROT_READ|PROT_WRITE, MAP_ANON|MAP_PRIVATE|MAP_STACK, -1, 0);
+		map = mmap (NULL, *map_size, PROT_READ|PROT_WRITE, MAP_ANON|MAP_PRIVATE|MAP_STACK, -1, 0);
 		if (map == MAP_FAILED) {
 			map = NULL;
 		}
@@ -300,7 +303,7 @@ new (StrandConfig cfg, uintptr_t (*fn)(void *, uintptr_t), void *data)
 		map_size += page_size;
 	}
 	
-	map = map_alloc (map_size);
+	map = map_alloc (&map_size);
 	if (map == NULL) {
 		return NULL;
 	}
