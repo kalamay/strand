@@ -64,7 +64,7 @@ static const char *state_names[] = {
 };
 
 /** Print format string for a Strand pointer */
-#define FMT "#<Strand:%012" PRIxPTR " state=%s, stack=%zd>"
+#define FMT "#<Strand:%012" PRIxPTR " state=%s, stack=%" PRIuMAX ">"
 
 /**
  * Expands into the arguments to fill in the `FMT` format specifiers
@@ -73,7 +73,7 @@ static const char *state_names[] = {
  * @return  list of arguments
  */
 #define FMTARGS(s) \
-	(uintptr_t)s, state_names[s->state], strand_stack_used (s)
+	(uintptr_t)s, state_names[s->state], (uintmax_t)strand_stack_used (s)
 
 /**
  * Runtime assert that prints stack and error information before aborting
