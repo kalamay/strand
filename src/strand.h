@@ -78,8 +78,10 @@ strand_new (uintptr_t (*fn)(void *, uintptr_t), void *data);
  * `strand_resume` on the returned value will transfer execution context
  * to the function `fn`.
  *
- * @param  fn    the function to execute in the new context
- * @param  data  user pointer to associate with the coroutine
+ * @param  stack_size  the minimum size to create for the new context
+ * @param  flags       configuration flags for the new context
+ * @param  fn          the function to execute in the new context
+ * @param  data        user pointer to associate with the coroutine
  * @return  new coroutine or `NULL` on error
  */
 extern Strand *
@@ -170,7 +172,7 @@ extern int
 strand_defer (void (*fn) (void *), void *data);
 
 /**
- * Creates an allocation that is free at termination of the coroutine
+ * Creates an allocation that is freed at termination of the coroutine
  *
  * @param  size  number of bytes to allocate
  * @return  point or `NULL` on error
@@ -179,7 +181,7 @@ extern void *
 strand_malloc (size_t size);
 
 /**
- * Creates a zeroed allocation that is free at termination of the coroutine
+ * Creates a zeroed allocation that is freed at termination of the coroutine
  *
  * @param  count  number of contiguous objects
  * @param  size   number of bytes for each object
@@ -199,13 +201,53 @@ strand_print (const Strand *s, FILE *out);
 
 #if defined (__BLOCKS__)
 
+/**
+ * Creates a new coroutine with a block for execution context
+ *
+ * The newly created coroutine will be in a suspended state. Calling
+ * `strand_resume` on the returned value will transfer execution context
+ * to `block`.
+ *
+ * The block will be copied upon creation, and it will be released
+ * after exiting.
+ *
+ * @param  block  the block to execute in the new context
+ * @return  new coroutine or `NULL` on error
+ */
 extern Strand *
 strand_new_b (uintptr_t (^block)(uintptr_t val));
 
+/**
+ * Creates a new coroutine with a block for execution context using
+ * non-global configuration options.
+ *
+ * The newly created coroutine will be in a suspended state. Calling
+ * `strand_resume` on the returned value will transfer execution context
+ * to `block`.
+ *
+ * The block will be copied upon creation, and it will be released
+ * after exiting.
+ *
+ * @param  stack_size  the minimum size to create for the new context
+ * @param  flags       configuration flags for the new context
+ * @param  block       the block to execute in the new context
+ * @return  new coroutine or `NULL` on error
+ */
 extern Strand *
 strand_new_config_b (uint32_t stack_size, uint32_t flags,
 		uintptr_t (^block)(uintptr_t val));
 
+/**
+ * Schedules a block to be invoked upon finalization of the active coroutine
+ *
+ * This will be called after the return of the coroutine function but before
+ * yielding back to the parent context. Deferred calls occur in LIFO order.
+ *
+ * The block will be copied upon creation, and it will be released
+ * after exiting.
+ *
+ * @param  block  block to execute
+ */
 extern int
 strand_defer_b (void (^block)(void));
 

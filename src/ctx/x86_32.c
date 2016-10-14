@@ -8,8 +8,15 @@
 #define ESP 5
 #define ECX 6
 
+/**
+ * Gets a pointer to the starting address of the stack
+ *
+ * @param  stack  lowest address of the stack
+ * @param  len    number of bytes for the stack
+ * @return  pointer to th starting address
+ */
 static uintptr_t *
-stack_start (uint8_t *stack, size_t len)
+strand_stack_start (uint8_t *stack, size_t len)
 {
 	uintptr_t *s = (uintptr_t *)(stack + len - sizeof (uintptr_t)*2);
 	s = (void *)((uintptr_t)s - (uintptr_t)s%16);
@@ -20,7 +27,7 @@ void
 strand_ctx_init (uintptr_t *ctx, void *stack, size_t len,
 		uintptr_t ip, uintptr_t a1, uintptr_t a2)
 {
-	uintptr_t *s = stack_start (stack, len);
+	uintptr_t *s = strand_stack_start (stack, len);
 	*s = 0;
 
 	s[1] = a1;
@@ -32,7 +39,7 @@ strand_ctx_init (uintptr_t *ctx, void *stack, size_t len,
 size_t
 strand_ctx_stack_size (const uintptr_t *ctx, void *stack, size_t len, bool current)
 {
-	register uintptr_t *s = stack_start (stack, len);
+	register uintptr_t *s = strand_stack_start (stack, len);
 	register uintptr_t sp;
 	if (current) {
 		__asm__ ("movl %%esp, %0" : "=r" (sp));
