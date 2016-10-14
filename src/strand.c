@@ -16,6 +16,8 @@
 
 #if STRAND_X86_64
 # include "ctx/x86_64.c"
+#elif STRAND_X86_32
+# include "ctx/x86_32.c"
 #endif
 
 #if STRAND_BLOCKS
