@@ -49,7 +49,7 @@ clean:
 	rm -rf build
 
 .PHONY: all test clean
-.PRECIOUS: build/obj/%.o
+.PRECIOUS: build/obj/%.o build/obj/test-%.o
 
 -include $(OBJ:.o=.o.d)
 
